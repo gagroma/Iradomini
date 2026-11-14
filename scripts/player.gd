@@ -13,7 +13,14 @@ extends CharacterBody3D
 # no Input Map setup.
 
 const T = preload("res://scripts/tuning.gd")
+const HandCandle = preload("res://scripts/candle.gd")
+const HandChalk = preload("res://scripts/hand_chalk.gd")
 const Models = preload("res://scripts/models.gd")
+const HAND_RIGHT = preload("res://assets/models/hand_right.glb")   # tools/make_hands.py
+const HAND_LEFT = preload("res://assets/models/hand_left.glb")
+# where the right hand rests (it holds the chalk at its back end, tip forward)
+const RIGHT_REST := Vector3(0.2, -0.15, -0.33)
+const RIGHT_REST_ROT := Vector3(-0.5, 0.3, 0.0)
 
 const MOUSE_SENSITIVITY := 0.0022
 const EYE_HEIGHT := 1.55
@@ -24,8 +31,12 @@ var main
 var head: Node3D
 var cam: Camera3D
 var hands: Node3D
-var chalk_stick: MeshInstance3D
-var candle_light: OmniLight3D
+var chalk_stick              # hand_chalk.gd: wears down unevenly as you draw
+var candle                  # candle.gd: burns down, flame reacts to wind and fear
+var right_hand: Node3D      # holds the chalk; reaches for the floor while you draw
+var rubbing := false        # right mouse held on the floor: rubbing a circle out
+var _reach := 0.0           # 0 = hand at rest, 1 = arm stretched out to the floor
+var _lag := Vector2.ZERO    # the hands trail a little behind the turning head
 
 var yaw := 0.0              # where the body really looks (left/right)
 var pitch := 0.0            # where the head really looks (up/down)
@@ -81,28 +92,37 @@ func setup(main_node) -> void:
 	# what you hold: a candle in the left hand, the chalk in the right
 	hands = Node3D.new()
 	cam.add_child(hands)
-	var candle = Models.candle()
-	candle.position = Vector3(-0.2, -0.27, -0.42)
+	candle = HandCandle.new()
+	candle.energy = CANDLE_ENERGY
+	candle.sfx = main.sfx
+	candle.position = Vector3(-0.2, -0.2, -0.39)
+	candle.rotation.y = -2.36       # finger ring towards your hand
 	hands.add_child(candle)
-	candle_light = OmniLight3D.new()
-	candle_light.position = Vector3(-0.2, 0.05, -0.35)
-	candle_light.light_color = Color(1.0, 0.66, 0.34)
-	candle_light.light_energy = CANDLE_ENERGY
-	candle_light.omni_range = 7.5
-	candle_light.omni_attenuation = 1.1
-	hands.add_child(candle_light)
 
-	chalk_stick = MeshInstance3D.new()
-	var bm = BoxMesh.new()
-	bm.size = Vector3(0.022, 0.022, 0.14)
-	chalk_stick.mesh = bm
-	var cm = StandardMaterial3D.new()
-	cm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	cm.albedo_color = Color(0.92, 0.88, 0.76)
-	chalk_stick.material_override = cm
-	chalk_stick.position = Vector3(0.19, -0.2, -0.38)
-	chalk_stick.rotation = Vector3(-0.5, 0.3, 0.0)
-	hands.add_child(chalk_stick)
+	# your hands (models: tools/make_hands.py), each built round what it holds
+	var hand_mat = ShaderMaterial.new()
+	hand_mat.shader = Models.VCOLOR_SHADER
+	hand_mat.set_shader_parameter("snap", false)
+	hand_mat.set_shader_parameter("roughness", 0.7)
+	var left = _hand_model(HAND_LEFT, hand_mat)
+	left.rotation.y = 2.36          # undo the candle's turn: the hand is in your hands' space
+	candle.add_child(left)          # so it rises with the candle as the candle burns down
+
+	right_hand = Node3D.new()
+	right_hand.position = RIGHT_REST
+	right_hand.rotation = RIGHT_REST_ROT
+	hands.add_child(right_hand)
+	chalk_stick = HandChalk.new()   # the end in your fingers at the hand's origin, tip forward
+	right_hand.add_child(chalk_stick)
+	right_hand.add_child(_hand_model(HAND_RIGHT, hand_mat))
+
+
+func _hand_model(scene: PackedScene, mat: Material) -> Node3D:
+	var node = scene.instantiate()
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return node
 
 
 func pos2() -> Vector2:
@@ -203,16 +223,43 @@ func _update_camera(dt: float, moved: float) -> void:
 	# GDD: FOV 62, narrowing to 50 next to the demon
 	var fov_target = lerpf(T.FOV_NORMAL, T.FOV_NEAR_DEMON, fear)
 	cam.fov = lerpf(cam.fov, fov_target, 1.0 - exp(-4.0 * dt))
-	# GDD: the candle in your hand flickers harder the closer the demon is
-	var flick = sin(_time * 11.0) * sin(_time * 4.7 + 1.3)
-	var amount = 0.06 + 0.5 * fear
-	candle_light.light_energy = CANDLE_ENERGY * (1.0 - amount * (0.5 + 0.5 * flick))
-	# hands sway a little with the walk
-	hands.position = Vector3(-bob_x * 0.5, -bob_y * 0.5 - (0.04 if drawing else 0.0), 0.0)
+	# hands sway a little with the walk, and trail a little behind the head
+	hands.position = Vector3(-bob_x * 0.5, -bob_y * 0.5, 0.0)
+	var lag_want = Vector2(clampf(pitch_target - pitch, -0.3, 0.3), clampf(yaw_target - yaw, -0.3, 0.3)) * -0.35
+	_lag = _lag.lerp(lag_want, 1.0 - exp(-12.0 * dt))
+	hands.rotation = Vector3(_lag.x, _lag.y, 0.0)
+	_update_right_hand(dt)
+	# the candle burns down; its flame leans in the wind of your movement and
+	# flickers harder the closer the demon is (GDD)
+	candle.tick(dt, fear)
 	# GDD "Zapas bez interfeisa": the chalk stick gets shorter as you use it
-	var left = clampf(main.chalk.chalk / T.CHALK_MAX, 0.0, 1.0)
-	chalk_stick.scale = Vector3(1.0, 1.0, maxf(0.06, left))
-	chalk_stick.visible = left > 0.005
+	chalk_stick.set_left(clampf(main.chalk.chalk / T.CHALK_MAX, 0.0, 1.0))
+
+
+# Drawing: the right arm stretches out towards the spot on the floor you look
+# at, the chalk turned tip-first to it, trembling as it scrapes the stone.
+# Rubbing out: the arm reaches out and scrubs from side to side.
+func _update_right_hand(dt: float) -> void:
+	var want = 1.0 if (drawing and aim_valid) or rubbing else 0.0
+	_reach = move_toward(_reach, want, dt * (4.5 if want > _reach else 3.0))
+	var k = smoothstep(0.0, 1.0, _reach)
+	var rest = Transform3D(Basis.from_euler(RIGHT_REST_ROT), RIGHT_REST)
+	if k <= 0.001:
+		right_hand.transform = rest
+		return
+	# the floor spot, in the hands' own space
+	var spot = hands.global_transform.affine_inverse() * Vector3(aim_point.x, 0.0, aim_point.y)
+	# the hand goes out and down to the lower right of the line of sight
+	var grip = spot.normalized() * 0.47 + Vector3(0.1, -0.13, 0.0)
+	if rubbing:
+		grip += Vector3(sin(_time * 13.0) * 0.035, 0.0, cos(_time * 26.0) * 0.008)
+	elif drawing:
+		grip += Vector3(sin(_time * 47.0), sin(_time * 53.0 + 1.0), 0.0) * 0.0018   # chalk scraping stone
+	var z = (grip - spot).normalized()          # the chalk lies along -Z: tip to the spot
+	var x = Vector3.UP.cross(z).normalized()
+	var y = z.cross(x).normalized()
+	var reach = Transform3D(Basis(x, y, z), grip)
+	right_hand.transform = rest.interpolate_with(reach, k)
 
 
 func _update_chalk(dt: float, can_draw: bool) -> void:
@@ -237,7 +284,8 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 
 	# erasing: hold the right mouse button on one of your circles
 	erase_progress = 0.0
-	if can_draw and not want_draw and aim_valid and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+	rubbing = can_draw and not want_draw and aim_valid and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	if rubbing:
 		erase_progress = main.chalk.erase_tick(aim_point, dt)
 	else:
 		main.chalk.erase_cancel()

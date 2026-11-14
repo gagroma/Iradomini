@@ -16,12 +16,8 @@ const GOLD = ["3d2a12", "8a5a1c", "d9a53a", "ffe9a0"]
 const SILVER = ["2b2f3a", "5d6678", "a9b4c6", "eef3ff"]
 const BRONZE = ["2a1a10", "6b3d1e", "b8742f", "f0c070"]
 const RED = ["2a0b10", "5c1220", "8f1f2e", "c9463f"]
-const WAX = ["6b5a45", "a8957a", "d9c8a8", "f5ecd6"]
-const CASSOCK = ["0b0a10", "1b1824", "2e2a3c", "4a4460"]
-const SKIN = ["5a4a48", "9a8478", "d8c2ae"]
 const EMBER = ["ff8a1f"]
 const EMBER_HOT = ["ffd15a"]
-const BLOOD = ["4a0a10"]
 
 
 # Models are slow to build (thousands of squares), so each one is built once
@@ -223,56 +219,36 @@ static func relic(kind: String) -> MeshInstance3D:
 	return _instance(cache[key], shared_splat_material())
 
 
-# A candle: wax + a flame that can be switched off ("Flame" child).
-static func candle() -> Node3D:
+# The exorcist who came before you, lying where his circle was left open,
+# and the claw gouges next to him. Modelled in Blender: tools/make_exorcist.py
+# (assets/models/dead_exorcist.glb, claw_marks.glb). Along +X: feet at -X,
+# head and reaching arm at +X.
+const EXORCIST_MODEL = preload("res://assets/models/dead_exorcist.glb")
+const CLAWS_MODEL = preload("res://assets/models/claw_marks.glb")
+const VCOLOR_SHADER = preload("res://shaders/psx_vcolor.gdshader")
+
+
+static func _vcolor_material() -> ShaderMaterial:
 	var cache = _cache()
-	if not cache.has("candle_wax"):
-		var w = _small_builder(21)
-		w.capsule(Vector3(0, 0, 0), Vector3(0, 0.18, 0), 0.025, 0.022, _pal(WAX))
-		cache["candle_wax"] = w.build()
-		var f = _small_builder(22)
-		f.ellipsoid(Vector3(0, 0.235, 0), Vector3(0.022, 0.05, 0.022), _pal(EMBER))
-		f.ellipsoid(Vector3(0, 0.225, 0), Vector3(0.012, 0.028, 0.012), _pal(EMBER_HOT))
-		cache["candle_flame"] = f.build()
-	var root = Node3D.new()
-	var wax = _instance(cache["candle_wax"], shared_splat_material())
-	wax.name = "Wax"
-	root.add_child(wax)
-	var flame = _instance(cache["candle_flame"], glow_material())
-	flame.name = "Flame"
-	root.add_child(flame)
-	return root
+	if not cache.has("mat_vcolor"):
+		var m = ShaderMaterial.new()
+		m.shader = VCOLOR_SHADER
+		cache["mat_vcolor"] = m
+	return cache["mat_vcolor"]
 
 
-# The exorcist who came before you, lying where his circle was left open.
-# Modelled along +X: feet at -X, head and reaching arm at +X.
-static func dead_exorcist() -> MeshInstance3D:
-	var cache = _cache()
-	if not cache.has("body"):
-		var b = SplatBuilder.new(31)
-		b.density = 6000.0
-		b.quad = 0.026
-		var cloth = _pal(CASSOCK)
-		var skin = _pal(SKIN)
-		b.capsule(Vector3(-0.2, 0.14, 0), Vector3(0.45, 0.14, 0), 0.17, 0.15, cloth)
-		b.ellipsoid(Vector3(0.68, 0.12, 0.02), Vector3(0.11, 0.11, 0.1), skin)
-		b.capsule(Vector3(-0.2, 0.12, 0.09), Vector3(-1.05, 0.08, 0.16), 0.09, 0.06, cloth)
-		b.capsule(Vector3(-0.2, 0.12, -0.09), Vector3(-1.0, 0.08, -0.2), 0.09, 0.06, cloth)
-		b.capsule(Vector3(0.4, 0.12, 0.15), Vector3(0.98, 0.05, 0.4), 0.055, 0.04, cloth)
-		b.ellipsoid(Vector3(1.04, 0.04, 0.43), Vector3(0.06, 0.03, 0.05), skin)
-		b.capsule(Vector3(0.38, 0.12, -0.15), Vector3(0.15, 0.08, -0.42), 0.055, 0.04, cloth)
-		b.box(Vector3(1.14, 0.02, 0.47), Vector3(0.07, 0.02, 0.02), _pal(["f3ead2"]))   # his last piece of chalk
-		cache["body"] = b.build()
-	return _instance(cache["body"], shared_splat_material())
+static func _glb(scene: PackedScene) -> Node3D:
+	var node = scene.instantiate()
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		mi.material_override = _vcolor_material()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return node
 
 
-# Three claw scratches on the floor.
-static func claw_marks() -> MeshInstance3D:
-	var cache = _cache()
-	if not cache.has("claws"):
-		var b = _small_builder(41)
-		for k in range(3):
-			var z = (k - 1) * 0.14
-			b.capsule(Vector3(-0.4, 0.012, z), Vector3(0.4, 0.012, z + 0.1), 0.012, 0.004, _pal(BLOOD), false)
-		cache["claws"] = b.build()
-	return _instance(cache["claws"], shared_splat_material())
+static func dead_exorcist() -> Node3D:
+	return _glb(EXORCIST_MODEL)
+
+
+# Three claw gouges torn into the floor.
+static func claw_marks() -> Node3D:
+	return _glb(CLAWS_MODEL)

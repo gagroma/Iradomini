@@ -32,8 +32,11 @@ const CRITICAL_TIME := 20.0        # seconds of the "wounded" state
 const FOV_NORMAL := 62.0
 const FOV_NEAR_DEMON := 50.0
 const FEAR_DISTANCE := 12.0        # GUESS: demon closer than this starts the fear effects
+const CANDLE_BURN_TIME := 400.0   # GUESS: seconds the candle in your hand lasts in still air
+const CANDLE_WIND_BURN := 0.5      # GUESS: running makes it burn this much faster (0.5 = +50%)
 
 # --- Demon ---
+const DEMON_ENABLED := true           # false = the demon leaves for good (to look at the level in peace)
 const DEMON_PATROL_SPEED := 1.5        # GUESS
 const DEMON_INVESTIGATE_SPEED := 2.3   # GUESS
 const DEMON_CHASE_SPEED := 4.3         # GUESS (slower than your run, faster than your walk)

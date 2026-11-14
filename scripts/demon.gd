@@ -89,6 +89,16 @@ func setup(main_node) -> void:
 	_apply_transform()
 
 
+# Test helper (tuning.gd DEMON_ENABLED = false): the demon leaves for good,
+# so the level can be looked at in peace.
+func switch_off() -> void:
+	state = S.GONE
+	visible = false
+	if _breath != null:
+		_breath.stop()
+	set_physics_process(false)
+
+
 func is_active() -> bool:
 	return state != S.GONE
 

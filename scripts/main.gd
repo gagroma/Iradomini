@@ -91,6 +91,8 @@ func _ready() -> void:
 	demon = Demon.new()
 	add_child(demon)
 	demon.setup(self)
+	if not T.DEMON_ENABLED:
+		demon.switch_off()
 
 	_make_post()
 	hud = Hud.new()
