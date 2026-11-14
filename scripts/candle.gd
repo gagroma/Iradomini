@@ -48,11 +48,11 @@ var attenuation := 1.1
 var held := true            # in your hand: lifted as it shortens
 var burns := true           # false: the wax never gets shorter
 var self_layer := 1 << 19  # render layer of this candle's own wax and brass: its own
-                            # lamp skips it (from 2 cm away it would burn them white)
-                            # and lights them in the shaders instead; other lamps
-                            # light it as usual. level.gd gives each candle its own.
+							# lamp skips it (from 2 cm away it would burn them white)
+							# and lights them in the shaders instead; other lamps
+							# light it as usual. level.gd gives each candle its own.
 var light_lift := 0.0       # lamp this far above the flame: a point light right in
-                            # the flame would burn the shelf under it to flat orange
+							# the flame would burn the shelf under it to flat orange
 var left := 1.0             # 1 = fresh candle, 0 = burnt out
 var lit := true
 var sfx                     # optional: plays "candle_out" when it dies

@@ -21,6 +21,7 @@ const Demon = preload("res://scripts/demon.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
+const DeathScene = preload("res://scripts/death_scene.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
 
 const RELIC_NAMES = {"chalice": "чаша", "cross": "крест", "censer": "кадило", "book": "молитвенник"}
@@ -166,7 +167,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_E:
 			_interact()
-		elif event.physical_keycode == KEY_R:
+		elif event.physical_keycode == KEY_R and game_state != "dead":
 			_restart()
 		elif event.physical_keycode == KEY_F3:
 			_debug = not _debug
@@ -293,6 +294,9 @@ func on_player_died() -> void:
 	_state_time = 0.0
 	sfx.play("hit", 3.0)
 	sfx.play("demon_scream", 6.0, 0.85)
+	var death = DeathScene.new()
+	add_child(death)
+	death.start(self)
 
 
 func on_banished(loop) -> void:
@@ -386,14 +390,6 @@ func _process(dt: float) -> void:
 		_choir.volume_db = lerpf(_choir.volume_db, want, 1.0 - exp(-1.2 * dt))
 
 	level.update_candles(demon.pos2, demon.is_active(), dt, sfx)
-
-	# death: the camera has turned to its face; fade out, then a new level
-	if game_state == "dead":
-		if _state_time > 1.3:
-			_fade_target = 1.0
-		if _state_time > 3.4:
-			_restart()
-			return
 
 	# ending: look up at the round window while the circle closes
 	var white = 0.0

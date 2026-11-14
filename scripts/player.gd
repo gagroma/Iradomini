@@ -31,6 +31,7 @@ var main
 var head: Node3D
 var cam: Camera3D
 var hands: Node3D
+var left_hand: Node3D
 var chalk_stick              # hand_chalk.gd: wears down unevenly as you draw
 var candle                  # candle.gd: burns down, flame reacts to wind and fear
 var right_hand: Node3D      # holds the chalk; reaches for the floor while you draw
@@ -62,6 +63,7 @@ var aim_point := Vector2.ZERO
 var drawing := false
 var erase_progress := 0.0
 var death_look := Vector3.ZERO
+var _pinned := 0.0
 
 var _time := 0.0
 var _bob := 0.0
@@ -111,6 +113,7 @@ func setup(main_node) -> void:
 	hand_mat.set_shader_parameter("roughness", 0.7)
 	var left = _hand_model(HAND_LEFT, hand_mat)
 	left.rotation.y = 2.36          # undo the candle's turn: the hand is in your hands' space
+	left_hand = left
 	candle.add_child(left)          # so it rises with the candle as the candle burns down
 
 	right_hand = Node3D.new()
@@ -157,8 +160,12 @@ func _physics_process(dt: float) -> void:
 	head.rotation.x = pitch
 
 	# --- moving ---
+	_pinned = maxf(0.0, _pinned - dt)
 	var input = Vector2.ZERO
-	if can_act:
+	if _pinned > 0.0:
+		velocity.x = 0.0
+		velocity.z = 0.0
+	if can_act and _pinned <= 0.0:
 		if Input.is_physical_key_pressed(KEY_W):
 			input.y -= 1.0
 		if Input.is_physical_key_pressed(KEY_S):
@@ -330,6 +337,10 @@ func look_at_point(point: Vector3) -> void:
 	_look_towards(point)
 
 
+func pin(seconds: float) -> void:
+	_pinned = maxf(_pinned, seconds)
+
+
 # Shake the camera: amount 0..1 adds up (a scream next to you is about 0.9).
 func shake(amount: float) -> void:
 	_trauma = clampf(_trauma + amount, 0.0, 1.0)
@@ -340,6 +351,7 @@ func take_hit(from: Vector3) -> void:
 	if not alive:
 		return
 	shake(0.7)
+	_pinned = 0.0
 	if critical:
 		alive = false
 		death_look = from + Vector3(0.0, 2.05, 0.0)

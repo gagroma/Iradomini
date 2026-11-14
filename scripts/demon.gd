@@ -447,21 +447,25 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 		_start_blocked()
 		return
 
+	if _windup > 0.0:
+		_turn_towards(to_p, dt, 12.0)
+		main.player.pin(0.1)
+		_windup -= dt
+		if _windup <= 0.0:
+			_strike(pp)
+		return
+
 	# close enough to strike
 	if reachable and sees_player and dist < T.DEMON_ATTACK_RANGE:
 		_turn_towards(to_p, dt, 12.0)
-		if _windup > 0.0:
-			_windup -= dt
-			if _windup <= 0.0:
-				_strike(pp)
-		elif _attack_cd <= 0.0:
+		if _attack_cd <= 0.0:
 			_windup = T.DEMON_ATTACK_WINDUP
 			_atk_t = 0.0
 			_atk_kind = randi() % 3
+			main.player.pin(0.1)
 			main.sfx.play_at("swing", head_position(), -2.0)
 			main.player.shake(0.25)
 		return
-	_windup = 0.0
 
 	# the last few metres: walk straight at the player
 	if reachable and sees_player and dist < 3.0 and main.level.nav.clear_line(pos2, pp):
@@ -501,8 +505,7 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 
 
 func _strike(pp: Vector2) -> void:
-	var still_close = pos2.distance_to(pp) < T.DEMON_ATTACK_RANGE + 0.5
-	if still_close and not main.chalk.is_separated(pos2, pp):
+	if not main.chalk.is_separated(pos2, pp):
 		main.player.take_hit(Vector3(pos2.x, 0.0, pos2.y))
 	_attack_cd = T.DEMON_ATTACK_COOLDOWN
 	state = S.RECOVER
@@ -512,6 +515,8 @@ func _strike(pp: Vector2) -> void:
 # RECOVER: after a strike it stands and roars, which gives you time to run.
 func _do_recover(dt: float, pp: Vector2) -> void:
 	_turn_towards(pp - pos2, dt, 6.0)
+	if not main.player.alive:
+		return
 	_recover -= dt
 	if _recover <= 0.0:
 		_start_chase()
