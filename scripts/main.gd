@@ -22,8 +22,10 @@ const Hud = preload("res://scripts/hud.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
 const PauseMenu = preload("res://scripts/pause_menu.gd")
-const AltarEnding = preload("res://scripts/altar_ending.gd")
+const WinScreen = preload("res://scripts/win_screen.gd")
+const AltarScene = preload("res://scripts/altar_scene.gd")
 const DeathScene = preload("res://scripts/death_scene.gd")
+const DoorIntro = preload("res://scripts/door_intro.gd")
 const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
 const POST_SHADER = preload("res://shaders/post.gdshader")
@@ -38,7 +40,7 @@ var hud
 var sfx
 var post: ShaderMaterial
 
-var game_state := "play"        # "play", "dead" or "ending"
+var game_state := "play"        # "play", "dead", "prayer" or "won"
 var fear := 0.0                 # 0..1 from how close the demon is
 var _hide := 0.0                # 0..1 screen effect while you hide
 var _alert := 0.0               # 0..1 red edge while the demon sees you
@@ -46,6 +48,7 @@ var relics := []                # {"node", "light", "pos", "kind", "taken", "cha
 var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
 var candle_intro := false
+var intro := false
 
 var _seed := 0
 var _time := 0.0
@@ -67,7 +70,11 @@ var _env: Environment
 var _bright := false
 var _interaction_target: Variant
 var _pause_menu: PauseMenu
-var _altar_ending: AltarEnding
+var _win: WinScreen
+var altar_busy := false
+var scripted_fear := -1.0
+const PLACE_ORDER := ["cross", "chalice", "censer", "book"]
+var _intro = null
 
 
 func _ready() -> void:
@@ -104,6 +111,12 @@ func _ready() -> void:
 		player.yaw = level.player_yaw
 		player.yaw_target = level.player_yaw
 		player.rotation.y = level.player_yaw
+	if level.get("entrance_leaf") != null:
+		_intro = DoorIntro.new()
+		add_child(_intro)
+		_intro.setup(self)
+		intro = true
+		_door_done = true
 
 	demon = Demon.new()
 	add_child(demon)
@@ -121,19 +134,23 @@ func _ready() -> void:
 	_pause_menu.resume_requested.connect(_resume)
 	_pause_menu.restart_requested.connect(_restart.bind(false))
 	_pause_menu.title_requested.connect(_return_to_title)
-	_altar_ending = AltarEnding.new()
-	add_child(_altar_ending)
-	_altar_ending.title_requested.connect(_return_to_title)
+	_win = WinScreen.new()
+	add_child(_win)
+	_win.again_requested.connect(_restart)
+	_win.title_requested.connect(_return_to_title)
 
 	_drone = sfx.loop("drone", -30.0 if candle_intro else -13.0)
 	_choir = sfx.loop("choir_rev", -60.0)
-	if candle_intro:
+	if candle_intro or intro:
 		player.frozen = true
-		player.candle.tick(1.0 / 60.0, 0.0)
 		hud.hide()
+	if candle_intro:
+		player.candle.tick(1.0 / 60.0, 0.0)
 		_fade = 0.0
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if intro:
+			_intro.play()
 
 
 func candle_flame_uv() -> Vector2:
@@ -142,10 +159,19 @@ func candle_flame_uv() -> Vector2:
 
 func finish_candle_intro() -> void:
 	candle_intro = false
-	player.frozen = false
-	hud.show()
 	if _drone != null:
 		create_tween().tween_property(_drone, "volume_db", -13.0, 0.65)
+	if intro:
+		_intro.play()
+	else:
+		end_intro()
+
+
+func end_intro() -> void:
+	intro = false
+	_intro = null
+	player.frozen = false
+	hud.show()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -209,13 +235,14 @@ func _spawn_relics() -> void:
 			"kind": spot["kind"],
 			"chapel": spot["chapel"],
 			"taken": false,
+			"placed": false,
 		})
 
 
 # ------------------------------------------------------------------- INPUT
 
 func _unhandled_input(event: InputEvent) -> void:
-	if candle_intro:
+	if candle_intro or intro:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_E:
@@ -258,7 +285,7 @@ func _physics_process(_dt: float) -> void:
 
 # What would E do right now? Returns a Dictionary, or null for "nothing".
 func _find_target() -> Variant:
-	if candle_intro or game_state != "play" or not player.alive:
+	if candle_intro or intro or altar_busy or game_state != "play" or not player.alive:
 		return null
 	var eye = player.cam.global_position
 	var forward = -player.cam.global_transform.basis.z
@@ -275,10 +302,10 @@ func _find_target() -> Variant:
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
-	if carried > 0 and pp.distance_to(level.altar_pos) < 2.7:
+	if (carried > 0 or placed >= T.RELICS_NEEDED) and pp.distance_to(level.altar_pos) < 2.7:
 		var to_altar: Vector3 = (level.altar_top - eye).normalized()
 		if forward.dot(to_altar) > INTERACTION_AIM_DOT and _can_see_target(eye, level.altar_top):
-			return {"type": "altar"}
+			return {"type": "altar" if carried > 0 else "pray"}
 	return null
 
 
@@ -295,8 +322,10 @@ func _interact() -> void:
 	_interaction_target = null
 	if target["type"] == "relic":
 		_take_relic(target["relic"])
+	elif target["type"] == "altar":
+		_place_next()
 	else:
-		_place_relics()
+		_begin_prayer()
 
 
 func _take_relic(r: Dictionary) -> void:
@@ -315,30 +344,65 @@ func _take_relic(r: Dictionary) -> void:
 		_clatter_pos = r["pos"]
 
 
-# GDD "Final": put all four on the altar.
-func _place_relics() -> void:
-	var slot = placed
-	var altar_yaw: float = level.altar_yaw if "altar_yaw" in level else 0.0
-	for r in relics:
-		if r["taken"] and not r["node"].visible:
-			var offset := Vector3(-0.75 + 0.5 * slot, 0.0, 0.1).rotated(Vector3.UP, altar_yaw)
-			r["node"].position = level.altar_top + offset
-			r["node"].visible = true
-			slot += 1
-	placed += carried
-	carried = 0
-	sfx.play_at("place", level.altar_top, 0.0)
+# GDD "Final": each relic goes to its own place on the altar, one at a time.
+func _next_relic() -> Variant:
+	for kind in PLACE_ORDER:
+		for r in relics:
+			if r["kind"] == kind and r["taken"] and not r["placed"]:
+				return r
+	return null
+
+
+func _place_next() -> void:
+	var r = _next_relic()
+	if r == null:
+		return
+	r["placed"] = true
+	carried -= 1
+	placed += 1
+	altar_busy = true
+	var scene = AltarScene.new()
+	add_child(scene)
+	scene.place(self, r)
+
+
+func altar_done() -> void:
+	altar_busy = false
 	if placed >= T.RELICS_NEEDED:
-		_start_ending()
+		hud.show_note("All relics are in place  ·  Read the prayer", 5.0)
 	else:
 		hud.show_note("Relics on the altar  %d/%d" % [placed, T.RELICS_NEEDED])
+
+
+func _begin_prayer() -> void:
+	altar_busy = true
+	game_state = "prayer"
+	chalk.release()
+	hud.hide()
+	if demon.is_active():
+		demon.fade_away()
+	var scene = AltarScene.new()
+	add_child(scene)
+	scene.pray(self)
+
+
+func show_win() -> void:
+	game_state = "won"
+	_win.reveal()
+
+
+func flash(amount: float) -> void:
+	_flash = maxf(_flash, amount)
 
 
 func _prompt_text(target: Variant) -> String:
 	if target != null:
 		if target["type"] == "relic":
 			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
-		return "E  ·  Place relics on the altar (%d)" % carried
+		if target["type"] == "pray":
+			return "E  ·  Read the prayer"
+		var next = _next_relic()
+		return "E  ·  Place the " + RELIC_NAMES[next["kind"]] if next != null else ""
 	if game_state == "play" and player.aim_valid and not player.drawing:
 		if chalk.loop_at(player.aim_point) != null:
 			return "Hold RMB  ·  Erase circle"
@@ -411,18 +475,6 @@ func _on_stroke_burned() -> void:
 
 # ------------------------------------------------------------------ ENDING
 
-func _start_ending() -> void:
-	game_state = "ending"
-	_state_time = 0.0
-	player.frozen = true
-	chalk.release()
-	chalk.close_decor()
-	demon.end_dissolve()
-	sfx.play("ending", 0.0)
-	hud.hide()
-	_altar_ending.reveal()
-
-
 func _restart(new_seed := true) -> void:
 	if new_seed:
 		Engine.set_meta("ira_seed", randi())
@@ -450,6 +502,8 @@ func _process(dt: float) -> void:
 	var target_fear = 0.0
 	if demon.is_active() and game_state == "play":
 		target_fear = clampf(1.0 - demon.distance_to_player() / T.FEAR_DISTANCE, 0.0, 1.0)
+	if scripted_fear >= 0.0:
+		target_fear = scripted_fear
 	fear = lerpf(fear, target_fear, 1.0 - exp(-3.0 * dt))
 	player.fear = fear
 	chalk.jitter = fear
@@ -484,10 +538,6 @@ func _process(dt: float) -> void:
 		_choir.volume_db = lerpf(_choir.volume_db, want, 1.0 - exp(-1.2 * dt))
 
 	level.update_candles(demon.pos2, demon.is_active(), dt, sfx)
-
-	# ending: look up at the round window while the circle closes
-	if game_state == "ending":
-		player.look_at_point(level.window_pos)
 
 	# screen effects
 	_flash = move_toward(_flash, 0.0, dt * 1.6)

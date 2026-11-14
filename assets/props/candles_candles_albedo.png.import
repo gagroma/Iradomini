@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://wcvyh4hq2yy5"
-path="res://.godot/imported/candles_candles_albedo.png-fa15f6ced6dfc7f237d2e21e0290b91e.ctex"
+path.s3tc="res://.godot/imported/candles_candles_albedo.png-fa15f6ced6dfc7f237d2e21e0290b91e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e2f4cbbd262c5f1312f08fbc0f0f578f"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/candles_candles_albedo.png"
-dest_files=["res://.godot/imported/candles_candles_albedo.png-fa15f6ced6dfc7f237d2e21e0290b91e.ctex"]
+dest_files=["res://.godot/imported/candles_candles_albedo.png-fa15f6ced6dfc7f237d2e21e0290b91e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

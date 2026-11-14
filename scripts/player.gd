@@ -21,6 +21,8 @@ const HAND_LEFT = preload("res://assets/models/hand_left.glb")
 # where the right hand rests (it holds the chalk at its back end, tip forward)
 const RIGHT_REST := Vector3(0.2, -0.15, -0.33)
 const RIGHT_REST_ROT := Vector3(-0.5, 0.3, 0.0)
+const SHOULDER := Vector3(0.3, -0.4, 0.2)
+const FINGERTIPS := Vector3(0.0, -0.005, -0.035)
 
 const MOUSE_SENSITIVITY := 0.0022
 const EYE_HEIGHT := 1.55
@@ -64,6 +66,8 @@ var drawing := false
 var erase_progress := 0.0
 var death_look := Vector3.ZERO
 var _pinned := 0.0
+var auto_move := Vector3.ZERO
+var right_override: Variant = null
 
 var _time := 0.0
 var _bob := 0.0
@@ -195,7 +199,10 @@ func _physics_process(dt: float) -> void:
 	if input.length() > 0.0:
 		input = input.normalized()
 		wish = (transform.basis * Vector3(input.x, 0.0, input.y)) * speed
-	var accel = 30.0 if can_act else 8.0
+	var walking_auto = auto_move != Vector3.ZERO
+	if walking_auto:
+		wish = auto_move
+	var accel = 30.0 if can_act else (4.0 if walking_auto else 8.0)
 	velocity.x = move_toward(velocity.x, wish.x, accel * dt)
 	velocity.z = move_toward(velocity.z, wish.z, accel * dt)
 	velocity.y = 0.0
@@ -209,7 +216,7 @@ func _physics_process(dt: float) -> void:
 		stride = 1.15
 	elif crouching:
 		stride = 0.6
-	if can_act and moved > 0.0005:
+	if (can_act or walking_auto) and moved > 0.0005:
 		_step_acc += moved
 		_bob += moved * (TAU / (stride * 2.0))
 		if _step_acc >= stride:
@@ -276,6 +283,9 @@ func _update_right_hand(dt: float) -> void:
 	_reach = move_toward(_reach, want, dt * (4.5 if want > _reach else 3.0))
 	var k = smoothstep(0.0, 1.0, _reach)
 	var rest = Transform3D(Basis.from_euler(RIGHT_REST_ROT), RIGHT_REST)
+	if right_override != null:
+		right_hand.transform = right_override
+		return
 	if k <= 0.001:
 		right_hand.transform = rest
 		return
@@ -340,6 +350,37 @@ func _look_towards(point: Vector3) -> void:
 
 func look_at_point(point: Vector3) -> void:
 	_look_towards(point)
+
+
+func right_hand_at(grip: Vector3) -> Transform3D:
+	var z = (SHOULDER - grip).normalized()
+	var x = Vector3.UP.cross(z).normalized()
+	var b = Basis(x, z.cross(x), z) * Basis.from_euler(Vector3(0.35, 0.0, 0.25))
+	return Transform3D(b, grip - b * FINGERTIPS)
+
+
+func aim_at(point: Vector3, rate: float, dt: float, lowest := -0.75, highest := 0.4) -> void:
+	var to = point - head.global_position
+	var want_yaw = atan2(-to.x, -to.z)
+	var want_pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), lowest, highest)
+	var k = 1.0 - exp(-rate * dt)
+	yaw_target += wrapf(want_yaw - yaw_target, -PI, PI) * k
+	pitch_target = lerpf(pitch_target, want_pitch, k)
+
+
+func pitch_toward(value: float, rate: float, dt: float) -> void:
+	pitch_target = lerpf(pitch_target, value, 1.0 - exp(-rate * dt))
+
+
+func walk_to(point: Vector3, speed: float) -> bool:
+	var to = point - position
+	to.y = 0.0
+	var d = to.length()
+	if d < 0.04:
+		auto_move = Vector3.ZERO
+		return true
+	auto_move = to / d * speed * clampf(d / 0.45, 0.2, 1.0)
+	return false
 
 
 func pin(seconds: float) -> void:

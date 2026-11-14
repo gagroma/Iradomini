@@ -77,6 +77,8 @@ var _reach := 1.0                   # the furthest of them
 var _wp_stuck := 0.0
 var _dissolve := 0.0
 var _dissolve_target := 0.0
+var _dissolve_speed := 0.7
+var scripted_move := 0.0
 var _time := 0.0
 
 var _root: Node3D
@@ -317,7 +319,9 @@ func _nearest_patrol_index() -> int:
 
 func _physics_process(dt: float) -> void:
 	_time += dt
-	_moving = false
+	_moving = scripted_move > 0.0
+	if _moving:
+		_move_speed = scripted_move
 	_notice_cd = maxf(0.0, _notice_cd - dt)
 	_scream_cd = maxf(0.0, _scream_cd - dt)
 	_attack_cd = maxf(0.0, _attack_cd - dt)
@@ -620,6 +624,64 @@ func end_dissolve() -> void:
 	_gone_left = 99999.0
 
 
+func fade_away() -> void:
+	state = S.GONE
+	_gone_left = 99999.0
+	_dissolve_target = 1.0
+	_dissolve_speed = 1.2
+
+
+func appear_at(at: Vector2, look: Vector2) -> void:
+	state = S.GONE
+	_gone_left = 99999.0
+	pos2 = at
+	facing = look.normalized()
+	_dissolve = 0.0
+	_dissolve_target = 0.0
+	_dissolve_speed = 0.7
+	_atk_t = -1.0
+	_apply_transform()
+
+
+func run_towards(target: Vector2, speed: float, dt: float) -> float:
+	var to = target - pos2
+	var d = to.length()
+	if d < 0.01:
+		scripted_move = 0.0
+		return 0.0
+	_turn_towards(to, dt, 14.0)
+	var step = minf(speed * dt, d)
+	pos2 += to / d * step
+	scripted_move = speed
+	_apply_transform()
+	_footsteps(dt)
+	return d - step
+
+
+func face(dir: Vector2, dt: float) -> void:
+	_turn_towards(dir, dt, 14.0)
+	_apply_transform()
+
+
+func scream_now() -> void:
+	_scream()
+
+
+func raise_claws() -> void:
+	scripted_move = 0.0
+	_atk_t = 0.0
+	_atk_kind = 2
+	main.sfx.play_at("swing", head_position(), 0.0)
+
+
+func vanish() -> void:
+	scripted_move = 0.0
+	_dissolve_target = 1.0
+	_dissolve_speed = 5.0
+	state = S.GONE
+	_gone_left = 99999.0
+
+
 # -------------------------------------------------------------- LOOK & SOUND
 
 func _scream() -> void:
@@ -658,7 +720,7 @@ func _footsteps(dt: float) -> void:
 
 func _animate(dt: float) -> void:
 	# coming apart / coming back
-	_dissolve = move_toward(_dissolve, _dissolve_target, dt * 0.7)
+	_dissolve = move_toward(_dissolve, _dissolve_target, dt * _dissolve_speed)
 	_material.set_shader_parameter("dissolve", _dissolve)
 	var shown = _dissolve < 0.98
 	_root.visible = shown

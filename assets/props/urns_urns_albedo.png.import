@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dd5upp2pm2g3g"
-path="res://.godot/imported/urns_urns_albedo.png-f54e15f8efd8aada62640c6ed4e24aa8.ctex"
+path.s3tc="res://.godot/imported/urns_urns_albedo.png-f54e15f8efd8aada62640c6ed4e24aa8.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "19a9cca16710163c0a1ada3105142e1e"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/urns_urns_albedo.png"
-dest_files=["res://.godot/imported/urns_urns_albedo.png-f54e15f8efd8aada62640c6ed4e24aa8.ctex"]
+dest_files=["res://.godot/imported/urns_urns_albedo.png-f54e15f8efd8aada62640c6ed4e24aa8.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

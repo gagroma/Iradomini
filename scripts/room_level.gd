@@ -21,6 +21,7 @@ extends Node3D
 const T = preload("res://scripts/tuning.gd")
 const Nav = preload("res://scripts/nav.gd")
 const Models = preload("res://scripts/models.gd")
+const Exterior = preload("res://scripts/exterior.gd")
 const Tpl = preload("res://scripts/room_templates.gd")
 const FlameCluster = preload("res://scripts/flame_cluster.gd")
 
@@ -42,11 +43,16 @@ var demon_start := Vector2.ZERO
 var altar_pos := Vector2.ZERO
 var altar_top := Vector3.ZERO
 var altar_yaw := 0.0
+var altar_front := Vector3.BACK
+var altar_way_in := Vector2.ZERO
+var altar_way_dir := Vector2.ZERO
 var altar_circle := PackedVector2Array()
 var narthex_poly := PackedVector2Array()
 var crossing_rect := Rect2()
 var window_pos := Vector3.ZERO
 var door_pos := Vector3.ZERO
+var entrance_leaf: Node3D
+var intro_crates: Node3D
 
 # --- the plan ---
 # room: {name, tpl, kind, pos: Vector2 (centre), rot: int (quarter turns), rect: Rect2, node,
@@ -75,6 +81,7 @@ func build(seed_value: int) -> void:
 	_body.name = "LevelCollision"
 	add_child(_body)
 	_instance_rooms()
+	_place_intro_crates()
 	_clear_doorways_and_props()
 	_wall_boxes()
 	_carve_and_block()
@@ -148,7 +155,9 @@ func _plan() -> bool:
 	for d in rooms[s]["doors"]:
 		if d["key"] == "S1":
 			d["entrance"] = true
-			reserved.append(Rect2(d["pos"] + d["dir"] * 2.0 - Vector2(2.0, 2.0), Vector2(4.0, 4.0)))
+			var dir: Vector2 = d["dir"]
+			var size := Vector2(18.0, 20.0) if absf(dir.x) > 0.5 else Vector2(20.0, 18.0)
+			reserved.append(Rect2(d["pos"] + dir * 9.2 - size * 0.5, size))
 	var pieces := ["room4_big_hall"]
 	for i in rng.randi_range(3, 4):
 		pieces.append("room1_normal" if rng.randf() < 0.5 else "room5_normal_wide")
@@ -316,6 +325,7 @@ func _instance_rooms() -> void:
 				var leaf: Node3D = door.get_node("DoorLeaf")
 				leaf.position.x = -DOOR_HALF_WIDTH
 				leaf.scale.x = 1.4
+				entrance_leaf = leaf
 			else:
 				# Linked rooms share a clear stone arch. Only the entrance has a door.
 				door.hide()
@@ -559,6 +569,19 @@ func _light_candles() -> void:
 
 # ----------------------------------------------------------- START and END
 
+func _place_intro_crates() -> void:
+	var room: Node3D = rooms[0]["node"]
+	var fixed := room.get_node_or_null("Fixed")
+	var marker := room.get_node_or_null("Slots/corner_SE") as Node3D
+	if fixed == null or marker == null:
+		return
+	var c: Node3D = load("res://assets/props/crates.glb").instantiate()
+	c.name = "IntroCrates"
+	fixed.add_child(c)
+	c.global_transform = marker.global_transform
+	intro_crates = c
+
+
 func _start_room() -> void:
 	var r = rooms[0]
 	var entrance: Dictionary = {}
@@ -576,6 +599,10 @@ func _start_room() -> void:
 	var to := x - p
 	player_yaw = atan2(-to.x, -to.y)
 	door_pos = Vector3(e.x, 1.5, e.y)
+	var outside := Exterior.new()
+	add_child(outside)
+	var out_dir: Vector2 = entrance["dir"]
+	outside.build(Vector3(e.x, 0.0, e.y), Vector3(out_dir.x, 0.0, out_dir.y), rng.randi())
 	# the salt threshold: the whole START room is safe; only the edge across the exit doorway is drawn
 	var o: Vector2 = exit["dir"]
 	var a := Vector2(-o.y, o.x)
@@ -617,6 +644,13 @@ func _end_room() -> void:
 	for d in r["doors"]:
 		if d["link"] >= 0:
 			way_in = d["pos"]
+			altar_way_dir = d["dir"]
+	altar_way_in = way_in
+	var ab := altar.global_basis.orthonormalized()
+	var to_way := Vector3(way_in.x - ap.x, 0.0, way_in.y - ap.z)
+	altar_front = ab.z if ab.z.dot(to_way) >= 0.0 else -ab.z
+	altar_front.y = 0.0
+	altar_front = altar_front.normalized()
 	var gap_angle := (way_in - altar_pos).angle() + 0.35
 	var half_gap := 0.24
 	var ang := gap_angle + half_gap

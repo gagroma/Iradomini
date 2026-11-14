@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cn2tk0s8wqkf6"
-path="res://.godot/imported/carpet_runner_carpet_runner_albedo.png-1fde6c5be7c27a599d18040c8f3c9f70.ctex"
+path.s3tc="res://.godot/imported/carpet_runner_carpet_runner_albedo.png-1fde6c5be7c27a599d18040c8f3c9f70.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "d2473be83089d724ff5b8863ac6b46ca"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/carpet_runner_carpet_runner_albedo.png"
-dest_files=["res://.godot/imported/carpet_runner_carpet_runner_albedo.png-1fde6c5be7c27a599d18040c8f3c9f70.ctex"]
+dest_files=["res://.godot/imported/carpet_runner_carpet_runner_albedo.png-1fde6c5be7c27a599d18040c8f3c9f70.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
