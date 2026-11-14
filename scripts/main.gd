@@ -442,6 +442,7 @@ func _process(dt: float) -> void:
 	post.set_shader_parameter("alert", _alert)
 	hud.stealth.set_state(aware, player.crouching and playing, player.is_hidden_now and playing)
 	hud.stealth.set_stamina(player.stamina / T.STAMINA_MAX, player.winded)
+	hud.set_chalk_supply(chalk.chalk, playing)
 
 	# words on screen
 	hud.set_prompt(_prompt_text())

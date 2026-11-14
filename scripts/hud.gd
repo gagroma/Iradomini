@@ -1,10 +1,9 @@
 extends CanvasLayer
-# HUD - the few words on screen. The GDD wants almost no interface (the chalk
-# supply is shown by the chalk stick in your hand), so this is only: a dot in
-# the middle, a one-line prompt, short notes, the stealth eye (stealth_hud.gd)
-# and a debug panel (F3) for testers.
+# HUD - the reticle, prompts, chalk supply, stealth eye and debug panel.
 # Source: Godot Label nodes inside a CanvasLayer (2D drawn on top of 3D).
 # The screen is 480x270 pixels, so positions below are in those pixels.
+
+const ChalkGauge = preload("res://scripts/chalk_gauge.gd")
 
 var dot: ColorRect
 var prompt: Label
@@ -16,6 +15,7 @@ var subtitle: Label
 var debug: Label
 var stealth                 # stealth_hud.gd: the demon's eye, your footsteps, hidden or not
 
+var _chalk_gauge: ChalkGauge
 var _note_time := 0.0
 var _help_time := 16.0
 
@@ -41,6 +41,8 @@ func setup() -> void:
 	debug.visible = false
 	stealth = preload("res://scripts/stealth_hud.gd").new()
 	add_child(stealth)
+	_chalk_gauge = ChalkGauge.new()
+	add_child(_chalk_gauge)
 
 
 func _label(pos: Vector2, box: Vector2, font_size: int, align: int) -> Label:
@@ -63,6 +65,12 @@ func set_prompt(text: String) -> void:
 
 func set_status(text: String) -> void:
 	status.text = text
+
+
+func set_chalk_supply(remaining: float, playing: bool) -> void:
+	_chalk_gauge.visible = playing
+	if playing:
+		_chalk_gauge.set_supply(remaining)
 
 
 # A short message that fades away by itself.
