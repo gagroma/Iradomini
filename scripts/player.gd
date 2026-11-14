@@ -162,7 +162,7 @@ func _physics_process(dt: float) -> void:
 			input.x -= 1.0
 		if Input.is_physical_key_pressed(KEY_D):
 			input.x += 1.0
-	crouching = can_act and Input.is_physical_key_pressed(KEY_CTRL)
+	crouching = can_act and (Input.is_physical_key_pressed(KEY_CTRL) or Input.is_physical_key_pressed(KEY_C))
 	running = can_act and not crouching and Input.is_physical_key_pressed(KEY_SHIFT) and input.length() > 0.0
 	var speed = T.WALK_SPEED
 	if crouching:

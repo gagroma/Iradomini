@@ -118,15 +118,16 @@ func distance_to_player() -> float:
 # ------------------------------------------------------------------ HEARING
 
 # Called for every noise: a footstep, the door, a falling candlestick.
-func hear(at: Vector2, radius: float) -> void:
+# Returns true if it heard it.
+func hear(at: Vector2, radius: float) -> bool:
 	if state == S.GONE or state == S.TRAPPED or state == S.RECOVER or state == S.BLOCKED:
-		return
+		return false
 	if pos2.distance_to(at) > radius:
-		return
+		return false
 	_last_known = at
 	if state == S.CHASE:
 		_lost = 0.0
-		return
+		return true
 	state = S.INVESTIGATE
 	_investigate = at
 	_path = []
@@ -134,6 +135,17 @@ func hear(at: Vector2, radius: float) -> void:
 	if _notice_cd <= 0.0:
 		_notice_cd = 4.0
 		main.sfx.play_at("demon_notice", head_position(), -4.0)
+	return true
+
+
+# For the stealth eye: 0 = no idea where you are, 1 = heard something,
+# 2 = sees you / hunting you.
+func awareness() -> int:
+	if state == S.CHASE or sees_player:
+		return 2
+	if state == S.INVESTIGATE:
+		return 1
+	return 0
 
 
 # ------------------------------------------------------------------- SEEING

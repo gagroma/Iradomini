@@ -15,7 +15,7 @@ A first playable prototype of GDD v6 as a Godot 4.7 project: one cathedral level
 | Key | Action |
 |---|---|
 | WASD / Shift | walk / run |
-| Ctrl | crouch; next to a pew, column or altar you are hidden |
+| Ctrl or C | crouch; next to a pew, column or altar you are hidden |
 | Left mouse (hold) | draw chalk where you look on the floor |
 | Right mouse (hold) | erase the circle you look at and get its chalk back |
 | E | take a relic, put relics on the altar |
@@ -35,6 +35,7 @@ A first playable prototype of GDD v6 as a Godot 4.7 project: one cathedral level
 - **Health:** first hit wounds you for 20 s, second hit kills and rebuilds the level with a new seed.
 - **Level:** narthex with a salt threshold, nave with pews, side aisles with columns, four chapels, pulpit with the prayer book, open crossing, altar with the unfinished circle and the body. The seed changes nave length, chapel positions, pulpit side.
 - **Feel:** head bob, breathing, turn inertia, FOV 62 to 50, vignette, grain and colour fringing by demon distance, candle flicker, heartbeat, low hum, reversed choir in the crossing.
+- **Stealth you can see:** a pixel eye at the top of the screen is the demon's attention (closed: no idea; amber, half open: it heard something; red, wide open: it sees you, with a red throbbing edge round the screen). Sound arcs either side show each footstep (crouch 1, walk 2, run 4, more with relics) and flash red when the demon heard it. Crouching says "присел · рядом нет укрытия" or "СКРЫТ"; hidden, the view narrows and goes darker and colder. (`scripts/stealth_hud.gd`)
 - **Hands:** your own hands in cassock sleeves (`tools/make_hands.py`): the left holds the chamberstick by its ring, the right pinches the chalk. Drawing, the right arm stretches out to the spot on the floor, chalk tip-first, trembling as it scrapes; rubbing a circle out, it scrubs from side to side. Both trail a little behind the turning head.
 - **Hand candle:** a brass chamberstick modelled in Blender. The candle burns down over about 6.5 minutes (faster while running) and lifts higher as it gets shorter; at the end it sputters, goes out and smokes. Its flame is a ray-marched glowing gas that leans away from your movement on a spring, shrinks, tears and sheds sparks and soot when you run or turn fast, and shudders when the demon is near. Its light follows the flame.
 - **Style:** 480x270 render, vertex snapping, tiny code-made textures, fog, dithered colour banding. The demon (the Wailer) and the relics are pixel-splat models built in code. The dead exorcist by the altar is a Blender model (`tools/make_exorcist.py`): a priest with a man's proportions in a cloth-simulated cassock, lying on his front with his back torn by claws, purple stole draped by cloth simulation, his last chalk in his reaching hand, blood under his head, his ritual book thrown open and a broken rosary; next to him three claw gouges in the stone. Candles on shelves, chapel tables and the altar are the same Blender chamberstick and flame as the hand candle, at different heights; they sway in a slow draft, shudder as the demon comes near and go out with a wisp of smoke.

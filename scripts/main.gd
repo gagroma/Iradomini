@@ -35,6 +35,8 @@ var post: ShaderMaterial
 
 var game_state := "play"        # "play", "dead" or "ending"
 var fear := 0.0                 # 0..1 from how close the demon is
+var _hide := 0.0                # 0..1 screen effect while you hide
+var _alert := 0.0               # 0..1 red edge while the demon sees you
 var relics := []                # {"node", "light", "pos", "kind", "taken", "chapel"}
 var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
@@ -275,7 +277,9 @@ func player_step(running: bool, crouching: bool) -> void:
 		radius = T.NOISE_CROUCH
 		volume = -30.0
 	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
-	demon.hear(player.pos2(), radius)
+	var heard = demon.hear(player.pos2(), radius)
+	# arcs on screen: crouch 1, walk 2, run 4, a relic or two more
+	hud.stealth.step(clampi(int(round(sqrt(radius) * 1.25)), 1, 5), heard)
 
 
 func on_player_hit() -> void:
@@ -404,13 +408,19 @@ func _process(dt: float) -> void:
 	post.set_shader_parameter("hurt", _hurt)
 	post.set_shader_parameter("flash", maxf(_flash, white))
 	post.set_shader_parameter("fade", _fade)
+	# hiding narrows and cools the view; being seen puts a red edge round it
+	var playing = game_state == "play"
+	_hide = lerpf(_hide, 1.0 if player.is_hidden_now and playing else 0.0, 1.0 - exp(-6.0 * dt))
+	var aware = demon.awareness() if demon.is_active() and playing else 0
+	_alert = lerpf(_alert, 1.0 if aware == 2 else 0.0, 1.0 - exp(-4.0 * dt))
+	post.set_shader_parameter("hide", _hide)
+	post.set_shader_parameter("alert", _alert)
+	hud.stealth.set_state(aware, player.crouching and playing, player.is_hidden_now and playing)
 
 	# words on screen
 	hud.set_prompt(_prompt_text())
 	hud.set_dot(player.aim_valid and game_state == "play")
 	var words = "святыни %d/%d" % [carried + placed, T.RELICS_NEEDED]
-	if player.is_hidden_now:
-		words += "  ·  СКРЫТ"
 	if player.critical:
 		words += "  ·  РАНЕН %d" % int(ceil(player.critical_time))
 	if game_state != "play":

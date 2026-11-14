@@ -12,6 +12,8 @@ uniform float fear = 0.0;     // 0 = calm, 1 = demon in your face
 uniform float hurt = 0.0;     // 1 while wounded
 uniform float flash = 0.0;    // white-gold flash (hit, banishing, ending)
 uniform float fade = 0.0;     // 1 = black screen
+uniform float hide = 0.0;     // 1 = you are hidden: the view narrows, darker and colder
+uniform float alert = 0.0;    // 1 = the demon sees you: a red edge
 uniform float levels = 20.0;  // colour steps per channel; lower = harsher banding
 
 float bayer2(vec2 a) {
@@ -40,9 +42,17 @@ void fragment() {
 	float n = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
 	c += (n - 0.5) * (0.035 + 0.12 * fear);
 
-	// vignette: dark corners that close in with fear
-	float vig = 1.0 - smoothstep(0.10, 0.55, r2 * (1.0 + fear * 1.6 + hurt * 1.2));
-	c *= mix(1.0, vig, 0.85);
+	// vignette: dark corners that close in with fear, and when you hide
+	float vig = 1.0 - smoothstep(0.10, 0.55, r2 * (1.0 + fear * 1.6 + hurt * 1.2 + hide * 1.8));
+	c *= mix(1.0, vig, 0.85 + 0.1 * hide);
+	// hidden: a little darker, colder, less colour - pressed into the shadow
+	float grey = dot(c, vec3(0.3, 0.55, 0.15));
+	c = mix(c, vec3(grey * 0.85, grey * 0.92, grey * 1.1), hide * 0.4);
+	c *= 1.0 - 0.12 * hide;
+
+	// seen: a red edge that throbs
+	float throb = 0.6 + 0.4 * sin(TIME * 9.0);
+	c = mix(c, vec3(0.6, 0.02, 0.02), alert * smoothstep(0.12, 0.3, r2) * 0.35 * throb);
 
 	// wounded: red pulse at the edges
 	float pulse = 0.5 + 0.5 * sin(TIME * 6.0);

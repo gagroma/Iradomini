@@ -1,7 +1,8 @@
 extends CanvasLayer
 # HUD - the few words on screen. The GDD wants almost no interface (the chalk
 # supply is shown by the chalk stick in your hand), so this is only: a dot in
-# the middle, a one-line prompt, short notes, and a debug panel (F3) for testers.
+# the middle, a one-line prompt, short notes, the stealth eye (stealth_hud.gd)
+# and a debug panel (F3) for testers.
 # Source: Godot Label nodes inside a CanvasLayer (2D drawn on top of 3D).
 # The screen is 480x270 pixels, so positions below are in those pixels.
 
@@ -13,6 +14,7 @@ var help: Label
 var title: Label
 var subtitle: Label
 var debug: Label
+var stealth                 # stealth_hud.gd: the demon's eye, your footsteps, hidden or not
 
 var _note_time := 0.0
 var _help_time := 16.0
@@ -32,11 +34,13 @@ func setup() -> void:
 	note = _label(Vector2(0, 60), Vector2(480, 14), 10, HORIZONTAL_ALIGNMENT_CENTER)
 	help = _label(Vector2(20, 206), Vector2(440, 60), 9, HORIZONTAL_ALIGNMENT_CENTER)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	help.text = "WASD - идти  ·  Shift - бег  ·  Ctrl - присесть у укрытия\nЛКМ (держать) - чертить мелом по полу  ·  ПКМ (держать) - стереть круг\nE - взять  ·  Замкни круг: демон не пересечёт черту"
+	help.text = "WASD - идти  ·  Shift - бег  ·  Ctrl / C - присесть, у укрытия - спрятаться\nЛКМ (держать) - чертить мелом по полу  ·  ПКМ (держать) - стереть круг\nE - взять  ·  Замкни круг: демон не пересечёт черту"
 	title = _label(Vector2(0, 92), Vector2(480, 30), 24, HORIZONTAL_ALIGNMENT_CENTER)
 	subtitle = _label(Vector2(0, 126), Vector2(480, 14), 10, HORIZONTAL_ALIGNMENT_CENTER)
 	debug = _label(Vector2(300, 4), Vector2(176, 120), 8, HORIZONTAL_ALIGNMENT_RIGHT)
 	debug.visible = false
+	stealth = preload("res://scripts/stealth_hud.gd").new()
+	add_child(stealth)
 
 
 func _label(pos: Vector2, box: Vector2, font_size: int, align: int) -> Label:
