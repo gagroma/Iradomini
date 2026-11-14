@@ -22,7 +22,8 @@ A first playable prototype of GDD v6 as a Godot 4.7 project: one cathedral level
 | R | restart with a new level |
 | F3 | debug numbers (demon state, chalk, timers) |
 | F4 | lights on and fog off, to inspect the level |
-| F11 / Esc | full screen / free the mouse |
+| F11 | toggle fullscreen |
+| Esc | pause or resume |
 
 ## What is in
 

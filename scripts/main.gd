@@ -10,8 +10,7 @@ extends Node3D
 # resolution (480x270, see project settings) plus the pixel-splat models.
 #
 # Extra keys for testing: R = restart with a new level, F3 = debug numbers,
-# F4 = lights on / fog off, F11 = full screen, Esc = free the mouse (click
-# to grab it again).
+# F4 = lights on / fog off, F11 = full screen, Esc = pause.
 
 const T = preload("res://scripts/tuning.gd")
 const Level = preload("res://scripts/level.gd")
@@ -21,6 +20,9 @@ const Demon = preload("res://scripts/demon.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
+const PauseMenu = preload("res://scripts/pause_menu.gd")
+const AltarEnding = preload("res://scripts/altar_ending.gd")
+const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
 const POST_SHADER = preload("res://shaders/post.gdshader")
 
@@ -62,6 +64,8 @@ var _circle_hint_done := false
 var _env: Environment
 var _bright := false
 var _interaction_target: Variant
+var _pause_menu: PauseMenu
+var _altar_ending: AltarEnding
 
 
 func _ready() -> void:
@@ -106,6 +110,14 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup()
 	_spawn_relics()
+	_pause_menu = PauseMenu.new()
+	add_child(_pause_menu)
+	_pause_menu.resume_requested.connect(_resume)
+	_pause_menu.restart_requested.connect(_restart.bind(false))
+	_pause_menu.title_requested.connect(_return_to_title)
+	_altar_ending = AltarEnding.new()
+	add_child(_altar_ending)
+	_altar_ending.title_requested.connect(_return_to_title)
 
 	_drone = sfx.loop("drone", -30.0 if candle_intro else -13.0)
 	_choir = sfx.loop("choir_rev", -60.0)
@@ -193,7 +205,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.physical_keycode == KEY_E:
 			_interact()
 		elif event.physical_keycode == KEY_R:
-			_restart()
+			if game_state != "ending":
+				_restart()
 		elif event.physical_keycode == KEY_F3:
 			_debug = not _debug
 		elif event.physical_keycode == KEY_F4:
@@ -205,10 +218,23 @@ func _unhandled_input(event: InputEvent) -> void:
 			GameSettings.set_fullscreen(not GameSettings.fullscreen)
 			GameSettings.save_settings()
 		elif event.physical_keycode == KEY_ESCAPE:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	elif event is InputEventMouseButton and event.pressed:
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			if game_state == "play":
+				get_viewport().set_input_as_handled()
+				_pause()
+
+
+func _pause() -> void:
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	hud.hide()
+	_pause_menu.open()
+
+
+func _resume() -> void:
+	_pause_menu.hide()
+	hud.show()
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	get_tree().paused = false
 
 
 func _physics_process(_dt: float) -> void:
@@ -373,11 +399,25 @@ func _start_ending() -> void:
 	chalk.close_decor()
 	demon.end_dissolve()
 	sfx.play("ending", 0.0)
+	hud.hide()
+	_altar_ending.reveal()
 
 
-func _restart() -> void:
-	Engine.set_meta("ira_seed", randi())
+func _restart(new_seed := true) -> void:
+	if new_seed:
+		Engine.set_meta("ira_seed", randi())
+	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+func _return_to_title() -> void:
+	var tree := get_tree()
+	var result := tree.change_scene_to_file(TITLE_SCENE)
+	if result == OK:
+		tree.paused = false
+		Engine.remove_meta("ira_seed")
+	else:
+		push_error("Could not return to the title (%s)." % error_string(result))
 
 
 # ----------------------------------------------------------------- EVERY FRAME
@@ -434,12 +474,8 @@ func _process(dt: float) -> void:
 			return
 
 	# ending: look up at the round window while the circle closes
-	var white = 0.0
 	if game_state == "ending":
 		player.look_at_point(level.window_pos)
-		white = clampf((_state_time - 3.0) / 4.0, 0.0, 0.8)
-		if _state_time > 5.0:
-			hud.show_title("THE CIRCLE IS CLOSED", "The rite is complete  ·  R to restart")
 
 	# screen effects
 	_flash = move_toward(_flash, 0.0, dt * 1.6)
@@ -447,7 +483,7 @@ func _process(dt: float) -> void:
 	_hurt = lerpf(_hurt, 1.0 if player.critical else 0.0, 1.0 - exp(-5.0 * dt))
 	post.set_shader_parameter("fear", fear)
 	post.set_shader_parameter("hurt", _hurt)
-	post.set_shader_parameter("flash", maxf(_flash, white))
+	post.set_shader_parameter("flash", _flash)
 	post.set_shader_parameter("fade", _fade)
 	# hiding narrows and cools the view; being seen puts a red edge round it
 	var playing = game_state == "play"

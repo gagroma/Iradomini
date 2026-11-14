@@ -11,8 +11,6 @@ var prompt: Label
 var status: Label
 var note: Label
 var help: Label
-var title: Label
-var subtitle: Label
 var debug: Label
 var stealth                 # stealth_hud.gd: the demon's eye, your footsteps, hidden or not
 
@@ -45,8 +43,6 @@ func setup() -> void:
 	help = _label(Vector2(20, 206), Vector2(440, 60), 11, HORIZONTAL_ALIGNMENT_CENTER)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.text = "WASD  Move  ·  Shift  Run  ·  Ctrl / C  Crouch to hide near cover\nHold LMB  Draw chalk  ·  Hold RMB  Erase a circle\nE  Interact  ·  The demon cannot cross a closed circle"
-	title = _label(Vector2(0, 92), Vector2(480, 30), 24, HORIZONTAL_ALIGNMENT_CENTER)
-	subtitle = _label(Vector2(0, 126), Vector2(480, 14), 12, HORIZONTAL_ALIGNMENT_CENTER)
 	debug = _label(Vector2(300, 4), Vector2(176, 120), 8, HORIZONTAL_ALIGNMENT_RIGHT)
 	debug.visible = false
 	stealth = preload("res://scripts/stealth_hud.gd").new()
@@ -84,11 +80,6 @@ func set_chalk_supply(remaining: float, playing: bool) -> void:
 func show_note(text: String, seconds: float = 4.0) -> void:
 	note.text = text
 	_note_time = seconds
-
-
-func show_title(big: String, small: String) -> void:
-	title.text = big
-	subtitle.text = small
 
 
 func update_reticle(playing: bool, floor_in_reach: bool, interactable: bool, erase: float, dt: float) -> void:

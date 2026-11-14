@@ -41,3 +41,23 @@ static func panel(at: Vector2, dimensions: Vector2, opacity := 0.95) -> ColorRec
 	material.set_shader_parameter("opacity", opacity)
 	rect.material = material
 	return rect
+
+
+static func action_button(caption: String, bounds: Rect2, size: int) -> Button:
+	var button := Button.new()
+	button.text = caption
+	button.position = bounds.position
+	button.size = bounds.size
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	style_text(button, size)
+	button.add_theme_color_override("font_hover_color", BONE)
+	button.add_theme_color_override("font_pressed_color", BONE)
+	button.add_theme_color_override("font_focus_color", BONE)
+	var highlight := StyleBoxFlat.new()
+	highlight.bg_color = Color("#eee1be19")
+	highlight.border_color = ASH
+	highlight.border_width_bottom = 1
+	button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	for state in ["hover", "pressed", "focus"]:
+		button.add_theme_stylebox_override(state, highlight)
+	return button
