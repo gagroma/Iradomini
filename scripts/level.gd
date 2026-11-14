@@ -13,6 +13,7 @@ extends Node3D
 
 const T = preload("res://scripts/tuning.gd")
 const Nav = preload("res://scripts/nav.gd")
+const RoomLevel = preload("res://scripts/room_level.gd")
 const Textures = preload("res://scripts/textures.gd")
 const Models = preload("res://scripts/models.gd")
 const PSX_SHADER = preload("res://shaders/psx.gdshader")
@@ -36,6 +37,8 @@ const ART_DUCCIO = preload("res://assets/art/duccio_madonna.png")
 const WALL_H := 6.0
 const WALL_T := 0.4
 const BAY := 5.0            # length of one nave section
+const CHAPEL_END := 12.6
+const WING_PORTAL_X := 13.8
 
 var nav
 var rng := RandomNumberGenerator.new()
@@ -62,25 +65,39 @@ var pew_backs := []
 var _chapels := []
 var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
+var _wings
+var _altar_beacon: OmniLight3D
+var _nave_lights: Array[SpotLight3D] = []
 
 
-func build(seed_value: int) -> void:
+func build(seed_value: int, cathedral_scenario := false) -> void:
 	rng.seed = seed_value
 	_deco.seed = seed_value + 7919
 	bays = rng.randi_range(3, 4)
 	z_end = -0.2 - BAY * bays
 	nav = Nav.new()
-	nav.setup(Rect2(-13.5, z_end - 18.5, 27.0, 25.0 - z_end))
+	_chapels = _pick_chapels()
+	var bounds := Rect2(-13.5, z_end - 18.5, 27.0, 25.0 - z_end)
+	if cathedral_scenario:
+		_wings = RoomLevel.new()
+		add_child(_wings)
+		var portals: Array[Vector2] = []
+		for ch in _chapels:
+			portals.append(Vector2(ch[0] * WING_PORTAL_X, _bay_center(ch[1])))
+		var cathedral := Rect2(-WING_PORTAL_X, z_end - 18.0, WING_PORTAL_X * 2.0, 24.0 - z_end)
+		bounds = _wings.plan_wings(seed_value, cathedral, portals).grow(2.0)
+	nav.setup(bounds)
 	_make_materials()
 
 	_build_narthex()
-	var chapels = _pick_chapels()
-	_chapels = chapels
-	_build_nave(chapels)
+	_build_nave(_chapels)
 	_build_crossing()
 	_build_apse()
-	_build_route(chapels)
+	_build_route(_chapels)
 	_decorate()
+	if _wings != null:
+		_wings.build_wings(nav)
+		relic_spots = _wings.relic_spots
 	nav.commit()
 
 
@@ -273,6 +290,7 @@ func _decorate() -> void:
 			sl.spot_range = 9.0
 			sl.spot_angle = 20.0
 			sl.spot_attenuation = 1.2
+			_nave_lights.append(sl)
 
 	# --- Stations of the Cross: I to XIV round the nave walls
 	var slots = []
@@ -302,7 +320,7 @@ func _decorate() -> void:
 
 	# --- chapels: an altarpiece above each little altar table
 	var chapel_art = [ART_ANGELICO, ART_CHRISTUS, ART_MURILLO, ART_DADDI]
-	for i in range(_chapels.size()):
+	for i in range(_chapels.size() if _wings == null else 0):
 		var side = _chapels[i][0]
 		var zc = _bay_center(_chapels[i][1])
 		var tex = chapel_art[i % chapel_art.size()]
@@ -473,9 +491,13 @@ func _build_nave(chapels: Array) -> void:
 		_floor(minf(side * 8.0, side * 8.4), zc - 0.9, maxf(side * 8.0, side * 8.4), zc + 0.9, "floor_chapel")
 		_carve(minf(side * 8.7, side * 12.1), zc - 1.5, maxf(side * 8.7, side * 12.1), zc + 1.5)
 		_carve(minf(side * 7.6, side * 8.8), zc - 0.7, maxf(side * 7.6, side * 8.8), zc + 0.7)
-		_wall_z(side * 12.6, zc - 2.2, zc + 2.2)
 		_wall_x(zc - 2.0, minf(side * 8.4, side * 12.8), maxf(side * 8.4, side * 12.8))
 		_wall_x(zc + 2.0, minf(side * 8.4, side * 12.8), maxf(side * 8.4, side * 12.8))
+		if _wings != null:
+			_build_wing_passage(side, zc)
+			_candle(Vector3(side * 12.0, 0.0, zc - 1.25), 2.3, 5.5)
+			continue
+		_wall_z(side * CHAPEL_END, zc - 2.2, zc + 2.2)
 		# a small stone table against the far wall
 		var tx = side * 11.85
 		_box(Vector3(tx, 0.45, zc), Vector3(0.7, 0.9, 1.5), "stone")
@@ -488,6 +510,22 @@ func _build_nave(chapels: Array) -> void:
 			var cx = side * 9.6
 			_box(Vector3(cx, 1.0, zc + 1.2), Vector3(1.2, 2.0, 0.7), "wood")
 			_obstacle(cx - 0.6, zc + 0.85, cx + 0.6, zc + 1.55)
+
+
+func _build_wing_passage(side: float, zc: float) -> void:
+	# Keep the cathedral wall behind the wing's arch, with a short stone passage between them.
+	_wall_z(side * CHAPEL_END, zc - 2.2, zc + 2.2, [[zc - 0.85, zc + 0.85]])
+	var inner := side * CHAPEL_END
+	var outer := side * WING_PORTAL_X
+	var left := minf(inner, outer)
+	var right := maxf(inner, outer)
+	for offset in [-1.05, 1.05]:
+		_wall_x(zc + offset, left, right, [], 3.0)
+	_box(Vector3((inner + outer) * 0.5, 2.8, zc),
+		Vector3(right - left, 0.4, 1.7), "wall", false)
+	_floor(minf(side * 12.4, inner), zc - 1.8, maxf(side * 12.4, inner), zc + 1.8, "floor_chapel")
+	_floor(left, zc - 0.85, right, zc + 0.85, "floor_chapel")
+	_carve(minf(side * 11.8, outer), zc - 0.68, maxf(side * 11.8, outer), zc + 0.68)
 
 
 # ----------------------------------------------------------------- CROSSING
@@ -517,7 +555,8 @@ func _build_crossing() -> void:
 	_box(Vector3(px, 1.63, pz), Vector3(0.55, 0.06, 0.45), "wood", false)
 	_obstacle(px - 0.8, pz - 0.8, px + 0.8, pz + 0.8)
 	_moon_shaft(Vector2(px, pz), 1.3, 2.0)
-	relic_spots.append({"pos": Vector3(px, 1.66, pz), "kind": "book", "chapel": false})
+	if _wings == null:
+		relic_spots.append({"pos": Vector3(px, 1.66, pz), "kind": "book", "chapel": false})
 	demon_start = Vector2(0.0, z_end - 5.0)
 
 
@@ -542,6 +581,13 @@ func _build_apse() -> void:
 	_candle(Vector3(-1.1, 1.15, za), 1.8, 5.0, true)
 	_candle(Vector3(1.1, 1.15, za), 1.8, 5.0, true)
 	_moon_shaft(Vector2(0.0, za + 1.2), 2.2, 1.4)
+	if _wings != null:
+		_altar_beacon = OmniLight3D.new()
+		_altar_beacon.position = altar_top + Vector3(0.0, 1.4, 1.7)
+		_altar_beacon.light_color = Color(1.0, 0.70, 0.37)
+		_altar_beacon.light_energy = 3.0
+		_altar_beacon.omni_range = 11.0
+		add_child(_altar_beacon)
 
 	# the unfinished circle: a ring of radius 2.5 m with a 1.1 m gap
 	var radius = 2.5
@@ -634,11 +680,24 @@ func near_cover(p: Vector2, dist: float) -> bool:
 		var c = Vector2(clampf(p.x, r.position.x, r.end.x), clampf(p.y, r.position.y, r.end.y))
 		if c.distance_to(p) <= dist:
 			return true
-	return false
+	return _wings != null and _wings.near_cover(p, dist)
+
+
+func advance_ritual(placed: int) -> void:
+	_altar_beacon.light_energy = 3.0 + placed * 0.6
+	if placed >= 2:
+		for light in _nave_lights:
+			light.light_energy = 0.42
+	if placed >= 3:
+		var altar_approach := altar_pos + Vector2(0.0, 4.0)
+		if not patrol_points.has(altar_approach):
+			patrol_points.insert(6, altar_approach)
 
 
 # GDD "Vsegda sebya vydayot": candles go out where the demon walks.
 func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> void:
+	if _wings != null:
+		_wings.update_candles(demon_pos, demon_active, dt, sfx)
 	_time += dt
 	for c in candles:
 		var d = c["pos2"].distance_to(demon_pos)

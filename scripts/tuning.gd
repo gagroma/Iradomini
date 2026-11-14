@@ -62,3 +62,4 @@ const RELICS_NEEDED := 4
 # true = R.E.P.O.-style level from the 7 room templates (room_level.gd);
 # false = the original hand-coded cathedral (level.gd)
 const ROOM_LEVEL := true
+const CATHEDRAL_SCENARIO := true

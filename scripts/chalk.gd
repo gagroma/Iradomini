@@ -19,6 +19,7 @@ const LINE_Y := 0.012               # height above the floor (just enough not to
 
 signal loop_closed(loop)
 signal stroke_burned
+signal altar_sealed
 
 var nav
 var chalk: float = T.CHALK_MAX           # metres of chalk left in your hand
@@ -41,6 +42,8 @@ var _decor_mat: ShaderMaterial
 var _stroke_seed := 0.0             # every line gets its own grain and wobble
 var _rng := RandomNumberGenerator.new()
 var _decor_close := -1.0            # 0..1 while the ending closes the gap
+var _altar_armed := false
+const ALTAR_END_REACH := 0.20
 
 
 func setup(nav_grid) -> void:
@@ -107,6 +110,13 @@ func try_add_point(p: Vector2) -> void:
 	stroke.append(p)
 	stroke_len += d
 	chalk -= d
+	if _altar_armed and _stroke_seals_altar():
+		_altar_armed = false
+		stroke.clear()
+		stroke_len = 0.0
+		_stroke_mesh.clear_surfaces()
+		altar_sealed.emit()
+		return
 	# Did the line come back to where it started?
 	if stroke_len >= T.MIN_LOOP_LENGTH and p.distance_to(stroke[0]) <= T.CLOSE_DISTANCE and _valid(stroke):
 		_finish_stroke(stroke.duplicate())
@@ -221,8 +231,9 @@ func _burn(pts: PackedVector2Array, line_seed: float = -1.0) -> void:
 # tapers where the chalk first touched and where it lifted off.
 # Everything depends on the distance along the line, not on time, so a line
 # keeps its look while it grows and after it closes.
-static func fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble := 0.0, line_seed := 0.0, time := 0.0) -> void:
-	mesh.clear_surfaces()
+static func fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble := 0.0, line_seed := 0.0, time := 0.0, append := false) -> void:
+	if not append:
+		mesh.clear_surfaces()
 	if pts.size() < 2:
 		return
 	var curve = _smooth(pts, closed, 3)
@@ -409,7 +420,7 @@ func on_banish(loop: Dictionary) -> void:
 # ------------------------------------------------------- THE ALTAR'S CIRCLE
 
 # The old exorcist's circle: a line with a gap. It blocks nothing.
-func add_decor(pts: PackedVector2Array) -> void:
+func add_decor(pts: PackedVector2Array, staged := false) -> void:
 	_decor = pts
 	_decor_mat = _line_material(Color(0.7, 0.67, 0.58), 61.0)
 	_decor_mat.set_shader_parameter("fade", 0.15)        # old, scuffed chalk
@@ -417,10 +428,45 @@ func add_decor(pts: PackedVector2Array) -> void:
 	_decor_node.mesh = _decor_mesh
 	_decor_node.material_override = _decor_mat
 	add_child(_decor_node)
-	fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3, 0.0, 61.0)
+	if staged:
+		show_altar_progress(0)
+	else:
+		fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3, 0.0, 61.0)
 
 
-# The ending: the gap closes by itself. The circle is full.
+func show_altar_progress(placed: int) -> void:
+	_decor_mesh.clear_surfaces()
+	var start := 0
+	for i in range(placed + 1, T.RELICS_NEEDED):
+		var gap := roundi(float(i) * (_decor.size() - 1) / T.RELICS_NEEDED)
+		fill_ribbon(_decor_mesh, _decor.slice(start, gap - 2), false, T.LINE_WIDTH * 1.3, 0.0, 61.0, 0.0, true)
+		start = gap + 3
+	fill_ribbon(_decor_mesh, _decor.slice(start), false, T.LINE_WIDTH * 1.3, 0.0, 61.0, 0.0, true)
+
+
+func prepare_altar_gap() -> void:
+	_altar_armed = true
+	chalk = maxf(chalk, _decor[0].distance_to(_decor[-1]) + 0.4)
+	_set_line(_decor_mat, Color(1.0, 0.86, 0.58))
+
+
+func is_near_altar_gap(aim: Vector2) -> bool:
+	if not _altar_armed:
+		return false
+	var gap_point := Geometry2D.get_closest_point_to_segment(aim, _decor[0], _decor[-1])
+	return gap_point.distance_to(aim) < 0.55
+
+
+func _stroke_seals_altar() -> bool:
+	var a := _decor[0]
+	var b := _decor[-1]
+	var start := stroke[0]
+	var end := stroke[-1]
+	var forward := start.distance_to(a) <= ALTAR_END_REACH and end.distance_to(b) <= ALTAR_END_REACH
+	var reverse := start.distance_to(b) <= ALTAR_END_REACH and end.distance_to(a) <= ALTAR_END_REACH
+	return (forward or reverse) and stroke_len <= a.distance_to(b) + 0.35
+
+
 func close_decor() -> void:
 	if _decor.size() >= 2:
 		_decor_close = 0.0

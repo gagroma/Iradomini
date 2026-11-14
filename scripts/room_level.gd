@@ -28,6 +28,7 @@ const MAX_CANDLE_LIGHTS := 30      # GL Compatibility draws at most 64 lights; k
 const CIRCLE_RADIUS := 2.2         # the old exorcist's unfinished circle round the altar
 const DOOR_HALF_WIDTH := 0.75
 const DOOR_APPROACH := 1.85
+const CATHEDRAL_LINK := -2
 
 # --- the same public interface as level.gd ---
 var nav
@@ -86,6 +87,56 @@ func build(seed_value: int) -> void:
 	nav.commit()
 
 
+# The cathedral owns the shared navigation grid and reserves its central footprint.
+func plan_wings(seed_value: int, cathedral: Rect2, portals: Array[Vector2]) -> Rect2:
+	rng.seed = seed_value
+	for attempt in 41:
+		rooms.clear()
+		reserved.assign([cathedral])
+		# Straight corridors into 4 m wide rooms fit even at adjacent cathedral bays.
+		var straight_wings := attempt == 40
+		var complete := true
+		for portal in portals:
+			var out := Vector2(signf(portal.x), 0.0)
+			var turns := [1] if out.x > 0.0 else [3]
+			var tpl := "room6_corridor_long" if straight_wings or rng.randf() < 0.5 else "room7_corridor_short"
+			var root_index := rooms.size()
+			if not _attach_to(tpl, turns, portal, out):
+				complete = false
+				break
+			var connectors := _open_doors().filter(func(c): return c.x == root_index)
+			var normal := "room1_normal" if not straight_wings and rng.randf() < 0.5 else "room5_normal_wide"
+			if straight_wings:
+				connectors = connectors.filter(func(c): return rooms[c.x]["doors"][c.y]["dir"] == out)
+			var room_turns := [0] if straight_wings else [0, 1, 2, 3]
+			if not _attach(normal, room_turns, connectors):
+				complete = false
+				break
+		if complete:
+			for i in 3:
+				var tpl := "room1_normal" if rng.randf() < 0.5 else "room7_corridor_short"
+				_attach(tpl, [0, 1, 2, 3], _open_doors())
+			var bounds := cathedral
+			for room in rooms:
+				bounds = bounds.merge(room["rect"])
+			return bounds
+	push_error("Could not plan cathedral wings for seed %d" % seed_value)
+	return cathedral
+
+
+func build_wings(shared_nav) -> void:
+	nav = shared_nav
+	_body = StaticBody3D.new()
+	_body.name = "WingCollision"
+	add_child(_body)
+	_instance_rooms()
+	_clear_doorways_and_props()
+	_wall_boxes()
+	_carve_and_block()
+	_light_candles(12)
+	_place_relics(true)
+
+
 # =================================================================== PLANNING
 
 func _rot(v: Vector2, k: int) -> Vector2:
@@ -112,9 +163,12 @@ func _add_room(name: String, pos: Vector2, k: int) -> int:
 	return rooms.size() - 1
 
 
-func _fits(rect: Rect2) -> bool:
+func _fits(rect: Rect2, wing := -1) -> bool:
 	var inner := rect.grow(-0.05)
 	for r in rooms:
+		# Wings can start on different tile grids. Leave their wall trim clear of each other.
+		if wing >= 0 and r["wing"] != wing and rect.grow(0.65).intersects(r["rect"]):
+			return false
 		if r["rect"].grow(-0.05).intersects(inner):
 			return false
 	for r in reserved:
@@ -128,7 +182,7 @@ func _open_doors() -> Array:
 	for i in rooms.size():
 		for j in rooms[i]["doors"].size():
 			var d = rooms[i]["doors"][j]
-			if d["link"] < 0 and not d["entrance"]:
+			if d["link"] == -1 and not d["entrance"]:
 				out.append(Vector2i(i, j))
 	return out
 
@@ -176,26 +230,40 @@ func _plan() -> bool:
 
 
 func _attach(name: String, turns: Array, connectors: Array) -> bool:
-	var t: Dictionary = Tpl.TEMPLATES[name]
 	var cons := connectors.duplicate()
 	if cons.size() > 1:
 		_shuffle(cons)
 	for c in cons:
 		var a = rooms[c.x]["doors"][c.y]
-		var options := []
-		for di in t["doors"].size():
-			for k in turns:
-				if _rot(t["doors"][di][2], k).is_equal_approx(-a["dir"]):
-					options.append([di, k])
-		_shuffle(options)
-		for o in options:
-			var pos: Vector2 = a["pos"] - _rot(t["doors"][o[0]][1], o[1])
-			if not _fits(_rect(name, pos, o[1])):
-				continue
-			var b := _add_room(name, pos, o[1])
-			_link(c.x, c.y, b, o[0])
-			_auto_link(b)
+		if _attach_to(name, turns, a["pos"], a["dir"], c):
 			return true
+	return false
+
+
+func _attach_to(name: String, turns: Array, portal: Vector2, out: Vector2, connector := Vector2i(-1, -1)) -> bool:
+	var doors: Array = Tpl.TEMPLATES[name]["doors"]
+	var wing: int = rooms[connector.x].get("wing", -1) if connector.x >= 0 else rooms.size()
+	var options := []
+	for di in doors.size():
+		for k in turns:
+			if _rot(doors[di][2], k).is_equal_approx(-out):
+				options.append([di, k])
+	_shuffle(options)
+	for option in options:
+		var pos := portal - _rot(doors[option[0]][1], option[1])
+		if not _fits(_rect(name, pos, option[1]), wing):
+			continue
+		var b := _add_room(name, pos, option[1])
+		if connector.x >= 0:
+			_link(connector.x, connector.y, b, option[0])
+		else:
+			var d: Dictionary = rooms[b]["doors"][option[0]]
+			d["link"] = CATHEDRAL_LINK
+			d["own"] = true
+		if wing >= 0:
+			rooms[b]["wing"] = wing
+		_auto_link(b)
+		return true
 	return false
 
 
@@ -209,12 +277,12 @@ func _link(ia: int, da: int, ib: int, db: int) -> void:
 func _auto_link(b: int) -> void:
 	for db in rooms[b]["doors"].size():
 		var d = rooms[b]["doors"][db]
-		if d["link"] >= 0:
+		if d["link"] != -1:
 			continue
 		for ia in range(b):
 			for da in rooms[ia]["doors"].size():
 				var e = rooms[ia]["doors"][da]
-				if e["link"] < 0 and not e["entrance"] and e["pos"].distance_to(d["pos"]) < 0.1 and e["dir"].is_equal_approx(-d["dir"]):
+				if e["link"] == -1 and not e["entrance"] and e["pos"].distance_to(d["pos"]) < 0.1 and e["dir"].is_equal_approx(-d["dir"]):
 					_link(ia, da, b, db)
 
 
@@ -252,7 +320,7 @@ func _instance_rooms() -> void:
 	var door_pilasters := {}
 	for r in rooms:
 		for d in r["doors"]:
-			if d["link"] >= 0 and d["own"]:
+			if d["link"] != -1 and d["own"]:
 				var p: Vector2 = d["pos"]
 				var side: Vector2 = d["dir"].orthogonal()
 				for edge in [p - side, p + side]:
@@ -269,7 +337,7 @@ func _instance_rooms() -> void:
 		var open := PackedStringArray()
 		var empty := PackedStringArray()
 		for d in r["doors"]:
-			if d["entrance"] or (d["link"] >= 0 and d["own"]):
+			if d["entrance"] or (d["link"] != -1 and d["own"]):
 				open.append(d["key"])
 			elif d["link"] >= 0:
 				empty.append(d["key"])
@@ -345,7 +413,7 @@ func _clear_doorways_and_props() -> void:
 	var zones: Array[Rect2] = []
 	for r in rooms:
 		for d in r["doors"]:
-			if (d["link"] >= 0 and d["own"]) or d["entrance"]:
+			if (d["link"] != -1 and d["own"]) or d["entrance"]:
 				zones.append(_door_strip(d, DOOR_APPROACH, DOOR_HALF_WIDTH + 0.12))
 	for r in rooms:
 		var occupied := []
@@ -418,7 +486,7 @@ func _carve_and_block() -> void:
 	for r in rooms:
 		nav.carve(r["rect"].grow(-0.26))
 		for d in r["doors"]:
-			if d["link"] >= 0 and d["own"]:
+			if d["link"] != -1 and d["own"]:
 				nav.carve(_door_strip(d, 0.7, DOOR_HALF_WIDTH - 0.2))
 	for r in rooms:
 		for prop in _props_of(r["node"]):
@@ -516,7 +584,7 @@ func _world_box(n: Node3D) -> AABB:
 # ------------------------------------------------------------- candles
 
 # The props' FlameSpot markers become flame clusters (one light per prop) the demon can blow out.
-func _light_candles() -> void:
+func _light_candles(light_limit := MAX_CANDLE_LIGHTS) -> void:
 	var clusters := []            # [room index, [positions]]
 	for i in rooms.size():
 		var spots := []
@@ -553,7 +621,7 @@ func _light_candles() -> void:
 		var cl = FlameCluster.new()
 		add_child(cl)
 		cl.global_position = centre
-		cl.setup(group, n < MAX_CANDLE_LIGHTS)
+		cl.setup(group, n < light_limit)
 		candles.append({"pos": centre, "pos2": Vector2(centre.x, centre.z), "candle": cl, "lit": true, "timer": 0.0})
 
 
@@ -647,12 +715,14 @@ func _end_room() -> void:
 
 # ----------------------------------------------------------------- relics
 
-func _place_relics() -> void:
+func _place_relics(normal_rooms_only := false) -> void:
 	var spots := []               # [room index, Vector3]
 	var fallback_spots := []
 	for i in rooms.size():
 		var r = rooms[i]
 		if r["kind"] in ["start", "end"]:
+			continue
+		if normal_rooms_only and r["kind"] != "normal":
 			continue
 		var node: Node3D = r["node"]
 		for marker in node.find_children("item_*", "Marker3D", true, false):
@@ -671,12 +741,13 @@ func _place_relics() -> void:
 	_shuffle(fallback_spots)
 	spots.append_array(fallback_spots)
 	var kinds := ["chalice", "cross", "censer", "book"]
-	var used_rooms := {}
+	var used_areas := {}
 	for pass_n in 2:
 		for s in spots:
 			if relic_spots.size() >= kinds.size():
 				return
-			if pass_n == 0 and used_rooms.has(s[0]):
+			var area: int = rooms[s[0]].get("wing", s[0])
+			if pass_n == 0 and used_areas.has(area):
 				continue
 			var taken := false
 			for rs in relic_spots:
@@ -684,7 +755,7 @@ func _place_relics() -> void:
 					taken = true
 			if taken:
 				continue
-			used_rooms[s[0]] = true
+			used_areas[area] = true
 			relic_spots.append({"pos": s[1], "kind": kinds[relic_spots.size()], "chapel": rooms[s[0]]["kind"] == "normal"})
 
 
