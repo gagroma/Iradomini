@@ -247,9 +247,9 @@ static func _build_relic(kind: String) -> ArrayMesh:
 		b.ellipsoid(Vector3(0, 0.1, 0.075), Vector3(0.02, 0.02, 0.012), _pal(EMBER))
 	else:
 		# the prayer book
-		b.box(Vector3(0, 0.035, 0), Vector3(0.24, 0.07, 0.32), _pal(RED))
-		b.box(Vector3(0, 0.074, 0), Vector3(0.03, 0.006, 0.18), _pal(["ffe9a0"]))
-		b.box(Vector3(0, 0.074, -0.03), Vector3(0.11, 0.006, 0.03), _pal(["ffe9a0"]))
+		b.box(Vector3(0, 0.016, 0), Vector3(0.115, 0.032, 0.165), _pal(RED))
+		b.box(Vector3(0, 0.033, 0.005), Vector3(0.012, 0.004, 0.075), _pal(["ffe9a0"]))
+		b.box(Vector3(0, 0.033, -0.012), Vector3(0.046, 0.004, 0.012), _pal(["ffe9a0"]))
 	return b.build()
 
 

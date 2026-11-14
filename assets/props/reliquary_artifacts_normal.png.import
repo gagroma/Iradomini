@@ -2,34 +2,32 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bto7qj2c523c6"
-path="res://.godot/imported/reliquary_artifacts_normal.png-50763e7c4085357cfd082c3c4f5f5890.ctex"
+uid="uid://crtms55w2pbm2"
+path.s3tc="res://.godot/imported/reliquary_artifacts_normal.png-50763e7c4085357cfd082c3c4f5f5890.s3tc.ctex"
 metadata={
-"vram_texture": false
-}
-generator_parameters={
-"md5": "a81b2f581d5b95c30f739c85616cabc5"
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/props/reliquary_artifacts_normal.png"
-dest_files=["res://.godot/imported/reliquary_artifacts_normal.png-50763e7c4085357cfd082c3c4f5f5890.ctex"]
+dest_files=["res://.godot/imported/reliquary_artifacts_normal.png-50763e7c4085357cfd082c3c4f5f5890.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
-compress/normal_map=0
+compress/normal_map=1
 compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
-roughness/mode=0
-roughness/src_normal=""
+roughness/mode=1
+roughness/src_normal="res://assets/props/reliquary_artifacts_normal.png"
 process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2
@@ -40,4 +38,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dyffidsd3rmle"
-path="res://.godot/imported/chalice_chalice_albedo.png-b0e8163b6939093ab523fbffd64b14f8.ctex"
+path.s3tc="res://.godot/imported/chalice_chalice_albedo.png-b0e8163b6939093ab523fbffd64b14f8.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "78f9a7c121f4f905b96b3f4e8a188a18"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/chalice_chalice_albedo.png"
-dest_files=["res://.godot/imported/chalice_chalice_albedo.png-b0e8163b6939093ab523fbffd64b14f8.ctex"]
+dest_files=["res://.godot/imported/chalice_chalice_albedo.png-b0e8163b6939093ab523fbffd64b14f8.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

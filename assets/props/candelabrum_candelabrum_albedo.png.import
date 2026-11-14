@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://h0ldwlvcgget"
-path="res://.godot/imported/candelabrum_candelabrum_albedo.png-eb9ef94ccd7cd84bbbcd82ea4d73c356.ctex"
+path.s3tc="res://.godot/imported/candelabrum_candelabrum_albedo.png-eb9ef94ccd7cd84bbbcd82ea4d73c356.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "84da834739fc336ec3e478c8e7a38390"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/candelabrum_candelabrum_albedo.png"
-dest_files=["res://.godot/imported/candelabrum_candelabrum_albedo.png-eb9ef94ccd7cd84bbbcd82ea4d73c356.ctex"]
+dest_files=["res://.godot/imported/candelabrum_candelabrum_albedo.png-eb9ef94ccd7cd84bbbcd82ea4d73c356.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
