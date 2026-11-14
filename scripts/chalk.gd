@@ -164,9 +164,9 @@ func _make_loop(poly: PackedVector2Array, permanent: bool) -> Dictionary:
 	_next_id += 1
 	if permanent:
 		# the salt line at the door: only the piece across the doorway is visible
-		_fill_ribbon(mesh, PackedVector2Array([poly[0], poly[1]]), false, 0.14, 0.0)
+		fill_ribbon(mesh, PackedVector2Array([poly[0], poly[1]]), false, 0.14)
 	else:
-		_fill_ribbon(mesh, poly, true, T.LINE_WIDTH * 1.2, 0.0)
+		fill_ribbon(mesh, poly, true, T.LINE_WIDTH * 1.2)
 	loops.append(loop)
 	nav.set_chalk(loops)
 	return loop
@@ -195,12 +195,12 @@ func _burn(pts: PackedVector2Array) -> void:
 	node.mesh = mesh
 	node.material_override = mat
 	add_child(node)
-	_fill_ribbon(mesh, pts, false, T.LINE_WIDTH, 0.0)
+	fill_ribbon(mesh, pts, false, T.LINE_WIDTH)
 	_burns.append({"node": node, "mat": mat, "t": 0.6})
 
 
 # Draw a line as a flat ribbon lying on the floor.
-func _fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble: float) -> void:
+static func fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble := 0.0, time := 0.0) -> void:
 	mesh.clear_surfaces()
 	var n = pts.size()
 	if n < 2:
@@ -226,7 +226,7 @@ func _fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, wi
 		var side = Vector2(-dir.y, dir.x) * w * 0.5
 		var p = pts[i]
 		if wobble > 0.0:
-			p += Vector2(sin(_time * 31.0 + i * 1.7), cos(_time * 27.0 + i * 2.3)) * wobble
+			p += Vector2(sin(time * 31.0 + i * 1.7), cos(time * 27.0 + i * 2.3)) * wobble
 		mesh.surface_add_vertex(Vector3(p.x - side.x, 0.03, p.y - side.y))
 		mesh.surface_add_vertex(Vector3(p.x + side.x, 0.03, p.y + side.y))
 	mesh.surface_end()
@@ -340,7 +340,7 @@ func add_decor(pts: PackedVector2Array) -> void:
 	_decor_node.mesh = _decor_mesh
 	_decor_node.material_override = _decor_mat
 	add_child(_decor_node)
-	_fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3, 0.0)
+	fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3)
 
 
 # The ending: the gap closes by itself. The circle is full.
@@ -354,7 +354,7 @@ func _process(dt: float) -> void:
 
 	# the line being drawn (shakes when the demon is close - looks only)
 	if stroke.size() >= 2:
-		_fill_ribbon(_stroke_mesh, stroke, false, T.LINE_WIDTH, jitter * 0.025)
+		fill_ribbon(_stroke_mesh, stroke, false, T.LINE_WIDTH, jitter * 0.025, _time)
 
 	# closed circles: flash when new, turn gold while they hold the demon
 	for loop in loops:
@@ -396,5 +396,5 @@ func _process(dt: float) -> void:
 		var last = _decor[_decor.size() - 1]
 		var pts = _decor.duplicate()
 		pts.append(last.lerp(first, _decor_close))
-		_fill_ribbon(_decor_mesh, pts, _decor_close >= 1.0, T.LINE_WIDTH * 1.5, 0.0)
+		fill_ribbon(_decor_mesh, pts, _decor_close >= 1.0, T.LINE_WIDTH * 1.5)
 		_decor_mat.albedo_color = Color(0.5, 0.48, 0.42).lerp(Color(1.4, 1.1, 0.5), _decor_close)

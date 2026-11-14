@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/menu_stage.gd" id="2_stage"]
+
+[sub_resource type="Environment" id="Environment_chamber"]
+background_mode = 1
+background_color = Color(0.024, 0.019, 0.023, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.56, 0.47, 0.53, 1)
+ambient_light_energy = 0.58
+fog_enabled = true
+fog_light_color = Color(0.058, 0.039, 0.045, 1)
+fog_density = 0.038
+
+[node name="TitleMenu" type="Node3D"]
+script = ExtResource("1_menu")
+
+[node name="Stage" type="Node3D" parent="."]
+script = ExtResource("2_stage")
+
+[node name="Environment" type="WorldEnvironment" parent="Stage"]
+environment = SubResource("Environment_chamber")
+
+[node name="Camera" type="Camera3D" parent="Stage"]
+position = Vector3(0, 3.1, 6.9)
+current = true
+fov = 37.0

@@ -32,7 +32,7 @@ func setup() -> void:
 	note = _label(Vector2(0, 60), Vector2(480, 14), 10, HORIZONTAL_ALIGNMENT_CENTER)
 	help = _label(Vector2(20, 206), Vector2(440, 60), 9, HORIZONTAL_ALIGNMENT_CENTER)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	help.text = "WASD - идти  ·  Shift - бег  ·  Ctrl - присесть у укрытия\nЛКМ (держать) - чертить мелом по полу  ·  ПКМ (держать) - стереть круг\nE - взять  ·  Замкни круг: демон не пересечёт черту"
+	help.text = "WASD  Move  ·  Shift  Run  ·  Ctrl  Crouch near cover\nHold LMB  Draw chalk  ·  Hold RMB  Erase a circle\nE  Interact  ·  The demon cannot cross a closed circle"
 	title = _label(Vector2(0, 92), Vector2(480, 30), 24, HORIZONTAL_ALIGNMENT_CENTER)
 	subtitle = _label(Vector2(0, 126), Vector2(480, 14), 10, HORIZONTAL_ALIGNMENT_CENTER)
 	debug = _label(Vector2(300, 4), Vector2(176, 120), 8, HORIZONTAL_ALIGNMENT_RIGHT)

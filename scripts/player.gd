@@ -113,8 +113,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if alive and not frozen:
 			var rel = event.screen_relative
-			yaw_target -= rel.x * MOUSE_SENSITIVITY
-			pitch_target = clampf(pitch_target - rel.y * MOUSE_SENSITIVITY, -1.5, 1.4)
+			var sensitivity := MOUSE_SENSITIVITY * GameSettings.mouse_sensitivity / 100.0
+			yaw_target -= rel.x * sensitivity
+			pitch_target = clampf(pitch_target - rel.y * sensitivity, -1.5, 1.4)
 
 
 func _physics_process(dt: float) -> void:

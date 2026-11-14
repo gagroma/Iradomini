@@ -23,7 +23,7 @@ const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
 
-const RELIC_NAMES = {"chalice": "чаша", "cross": "крест", "censer": "кадило", "book": "молитвенник"}
+const RELIC_NAMES = {"chalice": "Chalice", "cross": "Cross", "censer": "Censer", "book": "Prayer Book"}
 
 var level
 var chalk
@@ -172,8 +172,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_env.ambient_light_energy = 3.0 if _bright else 0.7
 			_env.fog_enabled = not _bright
 		elif event.physical_keycode == KEY_F11:
-			var full = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+			GameSettings.set_fullscreen(not GameSettings.fullscreen)
+			GameSettings.save_settings()
 		elif event.physical_keycode == KEY_ESCAPE:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed:
@@ -223,7 +223,7 @@ func _take_relic(r: Dictionary) -> void:
 	# GDD: every relic you pick up makes your steps louder ("the relics whisper")
 	player.relics_found = carried + placed
 	sfx.play("pickup", -6.0)
-	hud.show_note("%s  (%d/%d)  ·  шаги стали громче" % [RELIC_NAMES[r["kind"]], carried + placed, T.RELICS_NEEDED])
+	hud.show_note("%s  (%d/%d)  ·  Your steps grow louder" % [RELIC_NAMES[r["kind"]], carried + placed, T.RELICS_NEEDED])
 	# GDD key moment 3: in a chapel a candlestick falls and the demon comes running
 	if r["chapel"] and not _clatter_done:
 		_clatter_done = true
@@ -245,18 +245,18 @@ func _place_relics() -> void:
 	if placed >= T.RELICS_NEEDED:
 		_start_ending()
 	else:
-		hud.show_note("на алтаре %d из %d" % [placed, T.RELICS_NEEDED])
+		hud.show_note("Relics on the altar  %d/%d" % [placed, T.RELICS_NEEDED])
 
 
 func _prompt_text() -> String:
 	var target = _find_target()
 	if target != null:
 		if target["type"] == "relic":
-			return "E - взять: " + RELIC_NAMES[target["relic"]["kind"]]
-		return "E - положить на алтарь (%d)" % carried
+			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
+		return "E  ·  Place relics on the altar (%d)" % carried
 	if game_state == "play" and player.aim_valid and not player.drawing:
 		if chalk.loop_at(player.aim_point) != null:
-			return "ПКМ (держать) - стереть круг"
+			return "Hold RMB  ·  Erase circle"
 	return ""
 
 
@@ -279,7 +279,7 @@ func player_step(running: bool, crouching: bool) -> void:
 func on_player_hit() -> void:
 	_flash = 0.9
 	sfx.play("hit", 2.0)
-	hud.show_note("РАНЕН  ·  второй удар убьёт", 5.0)
+	hud.show_note("WOUNDED  ·  The next hit will kill you", 5.0)
 
 
 func on_player_died() -> void:
@@ -294,12 +294,12 @@ func on_banished(loop) -> void:
 		chalk.on_banish(loop)
 	_flash = 0.7
 	sfx.play("banish", 0.0)
-	hud.show_note("демон изгнан  ·  мел вернётся за минуту", 6.0)
+	hud.show_note("Demon banished  ·  Chalk refills in one minute", 6.0)
 
 
 func on_demon_returned() -> void:
 	sfx.play("demon_notice", -12.0, 0.7)    # a far-off warning that it is back
-	hud.show_note("он вернулся", 3.0)
+	hud.show_note("It has returned", 3.0)
 
 
 func on_demon_scream() -> void:
@@ -309,7 +309,7 @@ func on_demon_scream() -> void:
 func _on_loop_closed(_loop) -> void:
 	if not _circle_hint_done:
 		_circle_hint_done = true
-		hud.show_note("круг замкнут  ·  ПКМ (держать) вернёт мел", 5.0)
+		hud.show_note("Circle sealed  ·  Hold RMB to recover chalk", 5.0)
 
 
 func _on_stroke_burned() -> void:
@@ -392,7 +392,7 @@ func _process(dt: float) -> void:
 		player.look_at_point(level.window_pos)
 		white = clampf((_state_time - 3.0) / 4.0, 0.0, 0.8)
 		if _state_time > 5.0:
-			hud.show_title("КРУГ ЗАМКНУТ", "обряд закончен  ·  R - начать заново")
+			hud.show_title("THE CIRCLE IS CLOSED", "The rite is complete  ·  R to restart")
 
 	# screen effects
 	_flash = move_toward(_flash, 0.0, dt * 1.6)
@@ -406,11 +406,11 @@ func _process(dt: float) -> void:
 	# words on screen
 	hud.set_prompt(_prompt_text())
 	hud.set_dot(player.aim_valid and game_state == "play")
-	var words = "святыни %d/%d" % [carried + placed, T.RELICS_NEEDED]
+	var words = "Relics %d/%d" % [carried + placed, T.RELICS_NEEDED]
 	if player.is_hidden_now:
-		words += "  ·  СКРЫТ"
+		words += "  ·  HIDDEN"
 	if player.critical:
-		words += "  ·  РАНЕН %d" % int(ceil(player.critical_time))
+		words += "  ·  WOUNDED %d" % int(ceil(player.critical_time))
 	if game_state != "play":
 		words = ""
 	hud.set_status(words)

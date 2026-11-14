@@ -22,14 +22,16 @@ const SKIN = ["5a4a48", "9a8478", "d8c2ae"]
 const EMBER = ["ff8a1f"]
 const EMBER_HOT = ["ffd15a"]
 const BLOOD = ["4a0a10"]
+const WAILER_HEAD_PIVOT := Vector3(0.0, 2.02, 0.48)
 
 
-# Models are slow to build (thousands of squares), so each one is built once
-# and remembered, even when the level restarts after a death.
+# Keep the meshes across scene changes and release them with the root window
+# before Godot shuts down the renderer.
 static func _cache() -> Dictionary:
-	if not Engine.has_meta("ira_mesh_cache"):
-		Engine.set_meta("ira_mesh_cache", {})
-	return Engine.get_meta("ira_mesh_cache")
+	var window := (Engine.get_main_loop() as SceneTree).root
+	if not window.has_meta("ira_mesh_cache"):
+		window.set_meta("ira_mesh_cache", {})
+	return window.get_meta("ira_mesh_cache")
 
 
 static func _pal(hex_list: Array) -> Array:
@@ -82,7 +84,7 @@ static func _build_wailer() -> Dictionary:
 	var rags = _pal(RAGS)
 	var out = {}
 
-	# --- body: pelvis, spine, ribs, neck, skull, horns, halo, rags ---
+	# --- body: pelvis, spine, ribs, neck, shoulders and rags ---
 	var b = SplatBuilder.new(11)
 	b.density = 3400.0
 	b.quad = 0.032
@@ -92,22 +94,29 @@ static func _build_wailer() -> Dictionary:
 	for rib in ribs:
 		# each rib is a ring left open at the back
 		b.torus(Vector3(0, rib[0], rib[1]), Vector3(0, 1, -0.45), rib[2], 0.024, PI * 0.5 + 0.5, PI * 2.5 - 0.5, bone)
-	b.chain([Vector3(0, 1.95, 0.4), Vector3(0, 2.05, 0.52), Vector3(0, 2.08, 0.62)], 0.07, 0.06, skin)
-	b.ellipsoid(Vector3(0, 2.08, 0.7), Vector3(0.16, 0.25, 0.19), skin)
-	b.torus(Vector3(0, 2.48, 0.66), Vector3(0.12, 1, 0.1), 0.3, 0.022, 0.55, TAU, _pal(["e8d27a"]))
+	b.chain([Vector3(0, 1.95, 0.4), WAILER_HEAD_PIVOT], 0.07, 0.066, skin)
+	var head = SplatBuilder.new(17)
+	head.density = b.density
+	head.quad = b.quad
+	head.set_pivot(WAILER_HEAD_PIVOT)
+	head.chain([WAILER_HEAD_PIVOT, Vector3(0, 2.05, 0.52), Vector3(0, 2.08, 0.62)], 0.066, 0.06, skin)
+	head.ellipsoid(Vector3(0, 2.08, 0.7), Vector3(0.16, 0.25, 0.19), skin)
+	head.torus(Vector3(0, 2.48, 0.66), Vector3(0.12, 1, 0.1), 0.3, 0.022, 0.55, TAU, _pal(["e8d27a"]))
 	for sx in [-1.0, 1.0]:
-		b.chain([Vector3(sx * 0.1, 2.27, 0.62), Vector3(sx * 0.2, 2.5, 0.5), Vector3(sx * 0.3, 2.62, 0.32), Vector3(sx * 0.34, 2.66, 0.14)], 0.045, 0.008, bone)
+		head.chain([Vector3(sx * 0.1, 2.27, 0.62), Vector3(sx * 0.2, 2.5, 0.5), Vector3(sx * 0.3, 2.62, 0.32), Vector3(sx * 0.34, 2.66, 0.14)], 0.045, 0.008, bone)
 		b.ellipsoid(Vector3(sx * 0.24, 1.84, 0.24), Vector3(0.09, 0.08, 0.08), skin)
 		for k in range(4):
 			var x = sx * (0.05 + 0.05 * k)
 			var z = -0.1 + 0.06 * k
 			b.chain([Vector3(x, 1.0, z), Vector3(x * 1.3, 0.7, z - 0.03), Vector3(x * 1.5, 0.35 + 0.08 * k, z + 0.02)], 0.035, 0.008, rags)
 	out["body"] = b.build()
+	out["head"] = head.build()
 
 	# --- glow: mouth, wax drips and two eyes (drawn through the fog) ---
 	var g = SplatBuilder.new(12)
 	g.density = 9000.0
 	g.quad = 0.022
+	g.set_pivot(WAILER_HEAD_PIVOT)
 	g.ellipsoid(Vector3(0, 2.0, 0.86), Vector3(0.085, 0.17, 0.05), _pal(EMBER))
 	g.ellipsoid(Vector3(0, 2.0, 0.885), Vector3(0.05, 0.12, 0.03), _pal(EMBER_HOT))
 	for y in [1.78, 1.72, 1.66]:
@@ -166,8 +175,13 @@ static func wailer() -> Dictionary:
 	var body = _instance(data["body"], material)
 	flip.add_child(body)
 	parts["body"] = body
+	var head = Node3D.new()
+	head.position = WAILER_HEAD_PIVOT
+	flip.add_child(head)
+	head.add_child(_instance(data["head"], material))
+	parts["head"] = head
 	var glow = _instance(data["glow"], glow_material())
-	flip.add_child(glow)
+	head.add_child(glow)
 	parts["glow"] = glow
 	for key in ["arm_l", "arm_r", "leg_l", "leg_r"]:
 		var limb = _instance(data[key], material)

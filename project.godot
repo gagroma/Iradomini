@@ -12,8 +12,12 @@ config_version=5
 
 config/name="Ira Domini - prototype"
 config/description="Stealth horror prototype for the Full Circle jam. Draw chalk circles; the demon cannot cross a closed line."
-run/main_scene="res://main.tscn"
+run/main_scene="res://menu.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+GameSettings="*res://scripts/game_settings.gd"
 
 [display]
 
