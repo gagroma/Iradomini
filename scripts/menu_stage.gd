@@ -5,11 +5,15 @@ const Candle = preload("res://scripts/candle.gd")
 const Models = preload("res://scripts/models.gd")
 const WALL_SHADER = preload("res://shaders/psx_wall_paint.gdshader")
 const FLOOR_SHADER = preload("res://shaders/psx_floor.gdshader")
+const FIRE_SHADER = preload("res://shaders/menu_chalk_fire.gdshader")
 const CHALK_COLOR := Color("#d2bd99")
 
 const CIRCLE_CENTER := Vector3(1.79, 0.0, 0.0)
 const CIRCLE_RADIUS := 1.54
 const CHALK_SEGMENTS := 128
+const BURN_TIME := 1.28
+const FLAME_HEIGHT := 0.63
+const SPARK_LIFETIME := 0.64
 const IDLE_HEAD := Vector3(0.10, 0.31, -0.03)
 
 var _wailer: Node3D
@@ -19,7 +23,10 @@ var _idle: Tween
 var _candle: Node3D
 var _chalk: MeshInstance3D
 var _chalk_material: ShaderMaterial
-var _dust: CPUParticles3D
+var _flames: MeshInstance3D
+var _fire_material: ShaderMaterial
+var _ember_lights: Array[OmniLight3D] = []
+var _sparks: Array[CPUParticles3D] = []
 var _time := 0.0
 var _burn_progress := 0.0
 
@@ -30,7 +37,7 @@ func _ready() -> void:
 	_camera.look_at(Vector3(-0.18, 1.24, 0.0))
 	_build_chamber()
 	_build_circle()
-	_make_dust()
+	_build_fire()
 
 	var model := Models.wailer()
 	_wailer = model["root"]
@@ -52,7 +59,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
-	_spine.rotation.x = sin(_time * 2.0) * 0.01 + _burn_progress * 0.065
+	_spine.rotation.x = sin(_time * 1.35) * 0.01 + _burn_progress * 0.065
 	_candle.tick(delta, _burn_progress * 0.75)
 
 
@@ -62,47 +69,70 @@ func wailer_node() -> Node3D:
 
 func face_camera() -> void:
 	_idle.kill()
+	var glance := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	glance.tween_property(_head, "rotation", _camera_gaze(), 0.32)
+	await glance.finished
+
+
+func _camera_gaze() -> Vector3:
 	var to_camera := _spine.global_basis.inverse() * (_camera.global_position - _head.global_position)
 	# The splat model faces +Z underneath the Wailer's flipped root.
 	var yaw := atan2(to_camera.x, to_camera.z)
 	var pitch := atan2(-to_camera.y, Vector2(to_camera.x, to_camera.z).length())
-	var glance := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	glance.tween_property(_head, "rotation", Vector3(pitch, yaw, 0.0), 0.22)
-	await glance.finished
+	return Vector3(pitch, yaw, 0.0)
 
 
 func burn_circle() -> void:
-	_dust.restart()
-	_dust.emitting = true
+	_flames.show()
 	var burn := create_tween()
-	burn.tween_method(_set_burn_progress, 0.0, 1.0, 0.66)
+	burn.tween_method(_set_burn_progress, 0.0, 1.0, BURN_TIME)
 	await burn.finished
 	_chalk.hide()
+	_flames.hide()
+
+
+func last_ember_uv() -> Vector2:
+	var position_on_ring := _circle_point(PI) + Vector3.UP * 0.22
+	return _camera.unproject_position(position_on_ring) / get_viewport().get_visible_rect().size
 
 
 func _set_burn_progress(progress: float) -> void:
 	_burn_progress = progress
-	_chalk_material.set_shader_parameter("burn_progress", progress)
+	var front := lerpf(-0.08, 1.08, progress)
+	_chalk_material.set_shader_parameter("burn_front", front)
+	_fire_material.set_shader_parameter("burn_front", front)
+	var angle := clampf(front, 0.0, 1.0) * PI
+	var heat := smoothstep(-0.08, 0.07, front) * (1.0 - smoothstep(0.88, 1.08, front))
+	for i in range(_ember_lights.size()):
+		var side := 1.0 if i == 0 else -1.0
+		var ember := _ember_lights[i]
+		ember.position = _circle_point(angle * side) + Vector3.UP * 0.24
+		ember.light_energy = heat * (3.5 + 0.7 * sin(_time * 33.0 + float(i) * 9.0))
+		_sparks[i].emitting = front >= -0.04 and front < 1.02
 
 
 func _start_idle() -> void:
 	_idle = create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_idle.tween_interval(0.9)
-	_idle.tween_property(_head, "rotation", Vector3(0.06, 0.66, -0.04), 1.1)
-	_idle.tween_interval(0.65)
-	_idle.tween_property(_head, "rotation", Vector3(0.53, 0.17, 0.07), 0.95)
-	_idle.tween_interval(1.1)
-	_idle.tween_property(_head, "rotation", Vector3(0.06, -0.18, 0.03), 1.35)
-	_idle.tween_interval(0.8)
-	_idle.tween_property(_head, "rotation", IDLE_HEAD, 1.1)
+	_idle.tween_interval(2.6)
+	_idle.tween_property(_head, "rotation", Vector3(0.06, 0.66, -0.04), 2.3)
+	_idle.tween_interval(1.9)
+	_idle.tween_property(_head, "rotation", Vector3(0.53, 0.17, 0.07), 2.5)
+	_idle.tween_interval(2.8)
+	_idle.tween_property(_head, "rotation", Vector3(0.06, -0.18, 0.03), 2.6)
+	_idle.tween_interval(1.8)
+	_idle.tween_property(_head, "rotation", IDLE_HEAD, 2.15)
+
+
+func _circle_point(angle: float) -> Vector3:
+	var radius := CIRCLE_RADIUS + sin(angle * 9.0) * 0.018 + sin(angle * 17.0) * 0.009
+	return CIRCLE_CENTER + Vector3(sin(angle), 0.0, cos(angle)) * radius
 
 
 func _build_circle() -> void:
 	var points := PackedVector2Array()
 	for i in range(CHALK_SEGMENTS):
-		var angle := TAU * float(i) / CHALK_SEGMENTS
-		var radius := CIRCLE_RADIUS + sin(angle * 9.0) * 0.018 + sin(angle * 17.0) * 0.009
-		points.append(Vector2(CIRCLE_CENTER.x, CIRCLE_CENTER.z) + Vector2(sin(angle), cos(angle)) * radius)
+		var point := _circle_point(TAU * float(i) / CHALK_SEGMENTS)
+		points.append(Vector2(point.x, point.z))
 	var mesh := ImmediateMesh.new()
 	Chalk.fill_ribbon(mesh, points, true, 0.11)
 	_chalk_material = ShaderMaterial.new()
@@ -115,32 +145,64 @@ func _build_circle() -> void:
 	add_child(_chalk)
 
 
-func _make_dust() -> void:
-	_dust = CPUParticles3D.new()
-	_dust.emitting = false
-	_dust.one_shot = true
-	_dust.amount = 72
-	_dust.lifetime = 0.6
-	_dust.explosiveness = 0.78
-	_dust.local_coords = true
-	_dust.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	_dust.emission_box_extents = Vector3(0.24, 0.012, 0.035)
-	_dust.direction = Vector3(0.0, 0.55, 1.0)
-	_dust.spread = 55.0
-	_dust.gravity = Vector3(0.0, -2.6, 0.0)
-	_dust.initial_velocity_min = 0.25
-	_dust.initial_velocity_max = 1.25
-	_dust.scale_amount_min = 0.48
-	_dust.scale_amount_max = 1.45
-	_dust.position = CIRCLE_CENTER + Vector3(0.0, 0.025, CIRCLE_RADIUS)
-	var grain := BoxMesh.new()
-	grain.size = Vector3(0.019, 0.016, 0.019)
+func _build_fire() -> void:
+	_fire_material = ShaderMaterial.new()
+	_fire_material.shader = FIRE_SHADER
+	var mesh := ImmediateMesh.new()
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP, _fire_material)
+	for i in range(CHALK_SEGMENTS + 1):
+		var u := float(i) / CHALK_SEGMENTS
+		var point := _circle_point(TAU * u) + Vector3.UP * 0.012
+		mesh.surface_set_uv(Vector2(u, 0.0))
+		mesh.surface_add_vertex(point)
+		mesh.surface_set_uv(Vector2(u, 1.0))
+		mesh.surface_add_vertex(point + Vector3.UP * FLAME_HEIGHT)
+	mesh.surface_end()
+	_flames = MeshInstance3D.new()
+	_flames.mesh = mesh
+	_flames.hide()
+	add_child(_flames)
+
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = Color("#e7a96e")
-	grain.material = material
-	_dust.mesh = grain
-	add_child(_dust)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.vertex_color_use_as_albedo = true
+	var spark_mesh := BoxMesh.new()
+	spark_mesh.size = Vector3(0.018, 0.036, 0.018)
+	spark_mesh.material = material
+	var colors := Gradient.new()
+	colors.offsets = PackedFloat32Array([0.0, 0.24, 1.0])
+	colors.colors = PackedColorArray([Color("#fff3bd"), Color("#ff922f"), Color("#cb231800")])
+	for i in range(2):
+		var ember := OmniLight3D.new()
+		ember.light_color = Color("#ff8543")
+		ember.light_energy = 0.0
+		ember.omni_range = 3.7
+		ember.omni_attenuation = 1.35
+		add_child(ember)
+		_ember_lights.append(ember)
+
+		var sparks := CPUParticles3D.new()
+		sparks.emitting = false
+		sparks.amount = 110
+		sparks.lifetime = SPARK_LIFETIME
+		sparks.lifetime_randomness = 0.32
+		sparks.local_coords = false
+		sparks.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		sparks.emission_sphere_radius = 0.09
+		sparks.direction = Vector3.UP
+		sparks.spread = 57.0
+		sparks.gravity = Vector3(0.0, -1.25, 0.0)
+		sparks.initial_velocity_min = 0.55
+		sparks.initial_velocity_max = 2.7
+		sparks.scale_amount_min = 0.46
+		sparks.scale_amount_max = 1.25
+		sparks.color_ramp = colors
+		sparks.mesh = spark_mesh
+		sparks.position.y = -0.19
+		ember.add_child(sparks)
+		_sparks.append(sparks)
 
 
 func _build_chamber() -> void:

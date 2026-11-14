@@ -66,6 +66,7 @@ var _wick_mat: ShaderMaterial
 var _brass_mat: ShaderMaterial
 var _flame_root: Node3D
 var _flame_mat: ShaderMaterial
+var _flame_center := Vector3.ZERO
 
 var _time := 0.0
 var _prev := Vector3.ZERO
@@ -202,6 +203,10 @@ func _particle_layer(additive: bool) -> MultiMesh:
 	return mm
 
 
+func flame_center() -> Vector3:
+	return _flame_center
+
+
 # Called by player.gd every physics frame. fear: 0..1 from the demon.
 func tick(dt: float, fear: float) -> void:
 	if dt <= 0.0:
@@ -273,10 +278,10 @@ func tick(dt: float, fear: float) -> void:
 	_flame_mat.set_shader_parameter("lean", _lean)
 	_flame_mat.set_shader_parameter("size", size_now)
 	_flame_mat.set_shader_parameter("turbulence", _turb)
-	var flame_mid = base + Vector3(_lean.x * 0.3, 0.4, _lean.y * 0.3) * FLAME_HEIGHT * size_now
+	_flame_center = base + Vector3(_lean.x * 0.3, 0.4, _lean.y * 0.3) * FLAME_HEIGHT * size_now
 	for m in [_wax_mat, _cap_mat, _brass_mat]:
 		m.set_shader_parameter("glow", clampf(size_now, 0.0, 1.2))
-		m.set_shader_parameter("flame_world", flame_mid)
+		m.set_shader_parameter("flame_world", _flame_center)
 
 	# --- the light follows the flame ---
 	var mid = base + Vector3(_lean.x * 0.35, 0.45, _lean.y * 0.35) * FLAME_HEIGHT * size_now

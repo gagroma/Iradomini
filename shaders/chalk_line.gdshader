@@ -20,7 +20,7 @@ render_mode unshaded, cull_disabled;
 uniform vec4 color : source_color = vec4(0.95, 0.9, 0.74, 1.0);
 uniform float fade : hint_range(0.0, 1.0) = 0.0;   // 1 = rubbed away
 uniform float seed = 0.0;
-uniform float burn_progress = -1.0;               // title screen only
+uniform float burn_front = -1.0;                  // title screen only
 uniform vec2 burn_origin = vec2(0.0);
 
 const float EDGE = 0.62;    // |across| where the line nominally ends
@@ -91,11 +91,11 @@ void fragment() {
 	}
 	ALBEDO = color.rgb * tone;
 
-	if (burn_progress >= 0.0) {
+	if (burn_front > -0.09) {
 		// Two ember fronts travel from the near edge and meet at the back.
 		vec2 offset = wpos.xz - burn_origin;
 		float angle = abs(atan(offset.x, offset.y)) / PI;
-		float distance_to_front = angle - mix(-0.08, 1.08, burn_progress);
+		float distance_to_front = angle - burn_front;
 		distance_to_front += (grain - 0.5) * 0.045;
 		if (distance_to_front < 0.0) {
 			discard;

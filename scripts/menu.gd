@@ -1,14 +1,16 @@
 extends Node3D
 
 const Sfx = preload("res://scripts/sfx.gd")
+const FlameTransition = preload("res://scripts/flame_transition.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
-const GAME_SCENE := "res://main.tscn"
+const GAME_SCENE = preload("res://main.tscn")
 const INK := Color("#f1dfc0")
 const MUTED_INK := Color("#bba587")
 const BRASS := Color("#b48c5a")
 
 var _choices: Control
 var _settings: Control
+var _title_art: Control
 var _play_button: Button
 var _settings_button: Button
 var _volume_slider: HSlider
@@ -59,19 +61,15 @@ func _start_game() -> void:
 	await _stage.face_camera()
 	if _breath != null:
 		_breath.stop()
-	_sfx.play("burn", -6.0, 0.8)
-	await _stage.burn_circle()
-
-	var transition := create_tween()
-	transition.tween_interval(0.13)
-	transition.tween_property(_fade, "color:a", 1.0, 0.44).set_trans(Tween.TRANS_SINE)
+	_sfx.play("burn", -4.0, 0.52)
 	if _drone != null:
-		transition.parallel().tween_property(_drone, "volume_db", -50.0, 0.44)
-	await transition.finished
-	var result := get_tree().change_scene_to_file(GAME_SCENE)
-	if result != OK:
-		push_error("Could not start the game (%s)." % error_string(result))
-		get_tree().reload_current_scene()
+		create_tween().tween_property(_drone, "volume_db", -60.0, 1.2)
+	var title_fade := create_tween()
+	title_fade.tween_property(_title_art, "modulate:a", 0.0, 0.65)
+	await _stage.burn_circle()
+	var transition := FlameTransition.new()
+	get_tree().root.add_child(transition)
+	transition.open_game(GAME_SCENE, _stage.last_ember_uv(), _sfx.streams.get("burn"))
 
 
 func _open_settings() -> void:
@@ -122,13 +120,16 @@ func _build_interface() -> void:
 	post.material = post_material
 	_add_left_shade(ui)
 
-	_label(ui, "IRA DOMINI", Vector2(30, 48), 31, INK, _display_font)
+	_title_art = Control.new()
+	_title_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(_title_art)
+	_label(_title_art, "IRA DOMINI", Vector2(30, 48), 31, INK, _display_font)
 	var rule := ColorRect.new()
 	rule.position = Vector2(32, 95)
 	rule.size = Vector2(147, 1)
 	rule.color = Color("#795638")
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui.add_child(rule)
+	_title_art.add_child(rule)
 
 	_choices = Control.new()
 	_choices.mouse_filter = Control.MOUSE_FILTER_IGNORE

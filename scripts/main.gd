@@ -40,6 +40,7 @@ var _alert := 0.0               # 0..1 red edge while the demon sees you
 var relics := []                # {"node", "light", "pos", "kind", "taken", "chapel"}
 var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
+var candle_intro := false
 
 var _seed := 0
 var _time := 0.0
@@ -102,8 +103,27 @@ func _ready() -> void:
 	hud.setup()
 	_spawn_relics()
 
-	_drone = sfx.loop("drone", -13.0)
+	_drone = sfx.loop("drone", -30.0 if candle_intro else -13.0)
 	_choir = sfx.loop("choir_rev", -60.0)
+	if candle_intro:
+		player.frozen = true
+		player.candle.tick(1.0 / 60.0, 0.0)
+		hud.hide()
+		_fade = 0.0
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func candle_flame_uv() -> Vector2:
+	return player.cam.unproject_position(player.candle.flame_center()) / get_viewport().get_visible_rect().size
+
+
+func finish_candle_intro() -> void:
+	candle_intro = false
+	player.frozen = false
+	hud.show()
+	if _drone != null:
+		create_tween().tween_property(_drone, "volume_db", -13.0, 0.65)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -163,6 +183,8 @@ func _spawn_relics() -> void:
 # ------------------------------------------------------------------- INPUT
 
 func _unhandled_input(event: InputEvent) -> void:
+	if candle_intro:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_E:
 			_interact()
