@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/saltsack.glb" id="r1"]
+
+[node name="narrow_sack" type="Node3D"]
+
+[node name="saltsack_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(0.93969, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.93969, 0, 0, 0.35)

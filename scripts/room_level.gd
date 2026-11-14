@@ -1,0 +1,712 @@
+extends Node3D
+# ROOM LEVEL - builds a level R.E.P.O.-style out of the 7 room templates (scenes/rooms/dressed/,
+# made by tools/build_rooms.py) and gives the rest of the game exactly what level.gd gives it:
+# nav, covers, patrol_points, candles, relic_spots, player_start, demon_start, altar_*, narthex_poly,
+# crossing_rect, window_pos, door_pos, near_cover() and update_candles().
+#
+# How a level is made (all from the seed, so R rebuilds it and a death rolls a new one):
+#   1. START is placed first. Its back door (S1) is the way you came in and stays shut.
+#   2. The big hall, 3-4 normal rooms and 2-4 corridors are shuffled and each one is attached to a
+#      random free doorway of the rooms already placed. A room may be turned by 0/90/180/270 degrees;
+#      its doorway must face the free doorway and the two rooms must not overlap.
+#   3. END is attached last, to the free doorway that is the most rooms away from START.
+#   4. Doorways that meet another room's doorway are opened, every other doorway is walled up.
+#      Where two rooms share a wall only the first room's wall is kept (no doubled walls).
+#   5. Each room fills its prop slots at random (prop_spawner.gd); then the demon's map, the
+#      cover spots, the candles, the relics and the patrol route are read from what was placed.
+#
+# Directions: Godot x/z. A room's doorway list (scripts/room_templates.gd) gives each doorway's
+# position and outward direction for an unturned room.
+
+const T = preload("res://scripts/tuning.gd")
+const Nav = preload("res://scripts/nav.gd")
+const Models = preload("res://scripts/models.gd")
+const Tpl = preload("res://scripts/room_templates.gd")
+const FlameCluster = preload("res://scripts/flame_cluster.gd")
+
+const MAX_CANDLE_LIGHTS := 30      # GL Compatibility draws at most 64 lights; keep room for the rest
+const CIRCLE_RADIUS := 2.2         # the old exorcist's unfinished circle round the altar
+
+# --- the same public interface as level.gd ---
+var nav
+var rng := RandomNumberGenerator.new()
+var covers := []
+var patrol_points := []
+var candles := []
+var relic_spots := []
+var player_start := Vector3.ZERO
+var player_yaw := 0.0
+var demon_start := Vector2.ZERO
+var altar_pos := Vector2.ZERO
+var altar_top := Vector3.ZERO
+var altar_circle := PackedVector2Array()
+var narthex_poly := PackedVector2Array()
+var crossing_rect := Rect2()
+var window_pos := Vector3.ZERO
+var door_pos := Vector3.ZERO
+
+# --- the plan ---
+# room: {name, tpl, kind, pos: Vector2 (centre), rot: int (quarter turns), rect: Rect2, node,
+#        doors: [{key, pos, dir, link (room index or -1), own (draws the doorway), entrance}]}
+var rooms := []
+var reserved := []                 # Rect2 kept free (outside the entrance door)
+var _time := 0.0
+var _body: StaticBody3D      # all level collision: simple boxes (mesh collision was slow and snagged on floors)
+
+
+func build(seed_value: int) -> void:
+	var ok := false
+	for attempt in range(40):
+		rng.seed = seed_value + attempt * 7919
+		if _plan():
+			ok = true
+			break
+	if not ok:
+		push_error("room_level: no layout found for seed %d" % seed_value)
+	var bounds: Rect2 = rooms[0]["rect"]
+	for r in rooms:
+		bounds = bounds.merge(r["rect"])
+	nav = Nav.new()
+	nav.setup(bounds.grow(3.0))
+	_body = StaticBody3D.new()
+	_body.name = "LevelCollision"
+	add_child(_body)
+	_instance_rooms()
+	_clear_doorways()
+	_wall_boxes()
+	_carve_and_block()
+	_light_candles()
+	_start_room()
+	_end_room()
+	_place_relics()
+	_route()
+	nav.commit()
+
+
+# =================================================================== PLANNING
+
+func _rot(v: Vector2, k: int) -> Vector2:
+	var a := k * PI * 0.5
+	var c := cos(a)
+	var s := sin(a)
+	# same turn as Node3D.rotation.y = a (x/z plane)
+	return Vector2(snappedf(v.x * c + v.y * s, 0.001), snappedf(-v.x * s + v.y * c, 0.001))
+
+
+func _rect(name: String, pos: Vector2, k: int) -> Rect2:
+	var half: Vector2 = Tpl.TEMPLATES[name]["half"]
+	if k % 2 == 1:
+		half = Vector2(half.y, half.x)
+	return Rect2(pos - half, half * 2.0)
+
+
+func _add_room(name: String, pos: Vector2, k: int) -> int:
+	var t: Dictionary = Tpl.TEMPLATES[name]
+	var doors := []
+	for d in t["doors"]:
+		doors.append({"key": d[0], "pos": pos + _rot(d[1], k), "dir": _rot(d[2], k), "link": -1, "own": false, "entrance": false})
+	rooms.append({"name": name, "kind": t["kind"], "pos": pos, "rot": k, "rect": _rect(name, pos, k), "doors": doors, "node": null})
+	return rooms.size() - 1
+
+
+func _fits(rect: Rect2) -> bool:
+	var inner := rect.grow(-0.05)
+	for r in rooms:
+		if r["rect"].grow(-0.05).intersects(inner):
+			return false
+	for r in reserved:
+		if r.intersects(inner):
+			return false
+	return true
+
+
+func _open_doors() -> Array:
+	var out := []
+	for i in rooms.size():
+		for j in rooms[i]["doors"].size():
+			var d = rooms[i]["doors"][j]
+			if d["link"] < 0 and not d["entrance"]:
+				out.append(Vector2i(i, j))
+	return out
+
+
+func _shuffle(list: Array) -> void:
+	for i in range(list.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp = list[i]
+		list[i] = list[j]
+		list[j] = tmp
+
+
+func _plan() -> bool:
+	rooms.clear()
+	reserved.clear()
+	var s := _add_room("room3_start", Vector2.ZERO, rng.randi_range(0, 3))
+	for d in rooms[s]["doors"]:
+		if d["key"] == "S1":
+			d["entrance"] = true
+			reserved.append(Rect2(d["pos"] + d["dir"] * 2.0 - Vector2(2.0, 2.0), Vector2(4.0, 4.0)))
+	var pieces := ["room4_big_hall"]
+	for i in rng.randi_range(3, 4):
+		pieces.append("room1_normal" if rng.randf() < 0.5 else "room5_normal_wide")
+	for i in rng.randi_range(2, 4):
+		pieces.append("room6_corridor_long" if rng.randf() < 0.5 else "room7_corridor_short")
+	_shuffle(pieces)
+	# a corridor first keeps START from opening straight into a big room
+	pieces.push_front("room6_corridor_long" if rng.randf() < 0.5 else "room7_corridor_short")
+	var normals := 0
+	var hall := false
+	for p in pieces:
+		if _attach(p, [0, 1, 2, 3], _open_doors()):
+			if p == "room4_big_hall": hall = true
+			if p.begins_with("room1") or p.begins_with("room5"): normals += 1
+	if not hall or normals < 2:
+		return false
+	# END goes to the free doorway furthest (in rooms) from START
+	var depth := _depths()
+	var opens := _open_doors()
+	opens.sort_custom(func(a, b): return depth[a.x] > depth[b.x])
+	for o in opens:
+		if _attach("room2_end", [0, 2], [o]):     # 0/180 only: the relics are laid along the altar's x
+			return true
+	return false
+
+
+func _attach(name: String, turns: Array, connectors: Array) -> bool:
+	var t: Dictionary = Tpl.TEMPLATES[name]
+	var cons := connectors.duplicate()
+	if cons.size() > 1:
+		_shuffle(cons)
+	for c in cons:
+		var a = rooms[c.x]["doors"][c.y]
+		var options := []
+		for di in t["doors"].size():
+			for k in turns:
+				if _rot(t["doors"][di][2], k).is_equal_approx(-a["dir"]):
+					options.append([di, k])
+		_shuffle(options)
+		for o in options:
+			var pos: Vector2 = a["pos"] - _rot(t["doors"][o[0]][1], o[1])
+			if not _fits(_rect(name, pos, o[1])):
+				continue
+			var b := _add_room(name, pos, o[1])
+			_link(c.x, c.y, b, o[0])
+			_auto_link(b)
+			return true
+	return false
+
+
+func _link(ia: int, da: int, ib: int, db: int) -> void:
+	rooms[ia]["doors"][da]["link"] = ib
+	rooms[ia]["doors"][da]["own"] = true          # the older room draws the doorway
+	rooms[ib]["doors"][db]["link"] = ia
+
+
+# A new room may by chance line a free doorway up with another room's free doorway: join them.
+func _auto_link(b: int) -> void:
+	for db in rooms[b]["doors"].size():
+		var d = rooms[b]["doors"][db]
+		if d["link"] >= 0:
+			continue
+		for ia in range(b):
+			for da in rooms[ia]["doors"].size():
+				var e = rooms[ia]["doors"][da]
+				if e["link"] < 0 and not e["entrance"] and e["pos"].distance_to(d["pos"]) < 0.1 and e["dir"].is_equal_approx(-d["dir"]):
+					_link(ia, da, b, db)
+
+
+func _neighbours(i: int) -> Array:
+	var out := []
+	for d in rooms[i]["doors"]:
+		if d["link"] >= 0:
+			out.append(d["link"])
+	return out
+
+
+func _depths() -> Array:
+	var depth := []
+	depth.resize(rooms.size())
+	depth.fill(-1)
+	depth[0] = 0
+	var queue := [0]
+	while not queue.is_empty():
+		var i: int = queue.pop_front()
+		for j in _neighbours(i):
+			if depth[j] < 0:
+				depth[j] = depth[i] + 1
+				queue.append(j)
+	return depth
+
+
+# ================================================================= BUILDING
+
+func _key(p: Vector3) -> String:
+	return "%d_%d" % [roundi(p.x * 10.0), roundi(p.z * 10.0)]
+
+
+func _instance_rooms() -> void:
+	var owner_of := {}            # wall/window/doorway position -> room index (first one wins)
+	for i in rooms.size():
+		var r = rooms[i]
+		var node: Node3D = load(Tpl.TEMPLATES[r["name"]]["scene"]).instantiate()
+		node.name = "Room%d_%s" % [i, r["kind"]]
+		node.position = Vector3(r["pos"].x, 0.0, r["pos"].y)
+		node.rotation.y = r["rot"] * PI * 0.5
+		node.light_flames = false
+		node.make_collision = false
+		var xf := node.transform
+		var open := PackedStringArray()
+		var empty := PackedStringArray()
+		for d in r["doors"]:
+			if d["entrance"] or (d["link"] >= 0 and d["own"]):
+				open.append(d["key"])
+			elif d["link"] >= 0:
+				empty.append(d["key"])
+		# walls and windows another room already has
+		var shell := node.get_node("Shell")
+		for c in shell.get_children():
+			var nm := String(c.name)
+			if not (nm.begins_with("Wall_") or nm.begins_with("Window_") or nm.begins_with("Pilaster_")):
+				continue
+			var k := ("p" if nm.begins_with("Pilaster") else "w") + _key(xf * c.position)
+			if owner_of.has(k) and owner_of[k] != i:
+				c.visible = false
+				var moon := node.get_node_or_null("Lights/Moon_" + nm.get_slice("_", 1))
+				if moon: moon.visible = false
+			else:
+				owner_of[k] = i
+		for slot in node.get_children():
+			var sn := String(slot.name)
+			if not sn.begins_with("DoorSlot_"):
+				continue
+			var key := sn.trim_prefix("DoorSlot_")
+			var k := "w" + _key(xf * slot.position)
+			if owner_of.has(k) and owner_of[k] != i:
+				if not empty.has(key):
+					empty.append(key)
+				var at := open.find(key)
+				if at >= 0:
+					open.remove_at(at)
+			else:
+				owner_of[k] = i
+		node.open_doors = open
+		node.empty_doors = empty
+		var slots = node.get_node_or_null("Slots")
+		if slots:
+			slots.seed_value = (rng.randi() & 0x7fffffff) | 1
+		for l in node.find_children("*", "Light3D", true, false):
+			l.shadow_enabled = false
+		# doorways between rooms stand open (leaf swung back against the wall); the entrance stays shut
+		for d in r["doors"]:
+			if d["link"] >= 0 and d["own"]:
+				var leaf := node.get_node_or_null("DoorSlot_%s/Doorway/Door/DoorLeaf" % d["key"])
+				if leaf:
+					leaf.rotation.y = deg_to_rad(-100.0)
+		add_child(node)              # the room fills its slots and builds its collision here
+		r["node"] = node
+
+
+# ------------------------------------------------------------- doorways stay clear
+
+# The spawner does not know which doorways will be used, so a prop can land in front of one.
+# Hide anything standing in a 1.6 m wide, 3 m deep zone across every open doorway (both rooms).
+func _clear_doorways() -> void:
+	var zones := []
+	for r in rooms:
+		for d in r["doors"]:
+			if (d["link"] >= 0 and d["own"]) or d["entrance"]:
+				var p: Vector2 = d["pos"]
+				if absf(d["dir"].x) > 0.5:
+					zones.append(Rect2(p.x - 1.5, p.y - 0.8, 3.0, 1.6))
+				else:
+					zones.append(Rect2(p.x - 0.8, p.y - 1.5, 1.6, 3.0))
+	for r in rooms:
+		for prop in _props_of(r["node"]):
+			var box := _world_box(prop)
+			if box.size == Vector3.ZERO or box.position.y > 0.5:
+				continue
+			var foot := Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
+			for z in zones:
+				if z.intersects(foot):
+					prop.visible = false
+					break
+
+
+# ------------------------------------------------------------- collision
+
+func _box(xf: Transform3D, centre: Vector3, size: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	cs.shape = shape
+	cs.transform = xf * Transform3D(Basis.IDENTITY, centre)
+	_body.add_child(cs)
+
+
+# Walls, window walls and pilasters as plain boxes; doorways leave a 1.1 m gap between two jambs.
+# Floors get no collision at all: the player floats at y = 0, like in level.gd.
+func _wall_boxes() -> void:
+	for r in rooms:
+		var node: Node3D = r["node"]
+		for c in node.get_node("Shell").get_children():
+			if not c.visible:
+				continue
+			var nm := String(c.name)
+			if nm.begins_with("Wall_"):
+				_box(c.global_transform, Vector3(0, 2.25, 0), Vector3(2.0, 4.5, 0.4))
+			elif nm.begins_with("Pilaster_"):
+				_box(c.global_transform, Vector3(0, 2.25, 0), Vector3(0.7, 4.5, 0.7))
+		for d in r["doors"]:
+			var slot := node.get_node_or_null("DoorSlot_" + d["key"])
+			if slot == null:
+				continue
+			var wall: Node3D = slot.get_node("Wall")
+			var way: Node3D = slot.get_node("Doorway")
+			if wall.visible or (way.visible and d["entrance"]):
+				_box(slot.global_transform, Vector3(0, 2.25, 0), Vector3(2.0, 4.5, 0.4))     # walled up / the shut entrance
+			elif way.visible:
+				for sx in [-1.0, 1.0]:
+					_box(slot.global_transform, Vector3(sx * 0.79, 2.25, 0), Vector3(0.46, 4.5, 0.4))
+				_box(slot.global_transform, Vector3(0, 3.5, 0), Vector3(2.0, 2.0, 0.4))         # above the arch
+
+
+# ------------------------------------------------- demon map + hiding spots
+
+func _carve_and_block() -> void:
+	for r in rooms:
+		nav.carve(r["rect"].grow(-0.26))
+		for d in r["doors"]:
+			if d["link"] >= 0 and d["own"]:
+				var p: Vector2 = d["pos"]
+				if absf(d["dir"].x) > 0.5:
+					nav.carve(Rect2(p.x - 1.0, p.y - 0.6, 2.0, 1.2))
+				else:
+					nav.carve(Rect2(p.x - 0.6, p.y - 1.0, 1.2, 2.0))
+	for r in rooms:
+		for prop in _props_of(r["node"]):
+			var box := _world_box(prop)
+			if box.size == Vector3.ZERO:
+				continue
+			if box.position.y > 0.5:               # wall-mounted (sconces, crosses, banners)
+				continue
+			var tall := box.end.y
+			if tall < 0.45:                        # low things (bottles, bones, books, sacks' spill): step over them
+				continue
+			var ob := _oriented_box(prop)
+			var foot: Rect2 = ob[2]
+			# the demon's map: the prop's real (turned) outline with a small margin
+			nav.block(foot.grow(-0.06), 0.12)
+			if tall > 0.7:
+				covers.append(foot)
+			# you bump into a box a little smaller than the prop, so you slide past corners
+			_box_xf(ob[0], ob[1] * Vector3(0.88, 1.0, 0.88))
+
+
+# Every placed prop instance of a room: the fixed set pieces and what the spawner put in the slots.
+func _props_of(room: Node) -> Array:
+	var out := []
+	var fixed := room.get_node_or_null("Fixed")
+	if fixed:
+		for c in fixed.get_children():
+			if not String(c.name).begins_with("NoCollide"):
+				out.append(c)
+	var slots := room.get_node_or_null("Slots")
+	if slots:
+		for marker in slots.get_children():
+			for g in marker.get_children():
+				if not (g is Node3D):
+					continue
+				if String(g.scene_file_path).ends_with(".glb"):
+					out.append(g)                 # clutter or an artifact: a single model
+				else:
+					for c in g.get_children():
+						if c is Node3D and not (c is Marker3D) and not String(c.name).begins_with("NoCollide"):
+							out.append(c)
+	return out
+
+
+# The prop's bounds in its own (turned) frame: [Transform3D of the box centre, size, world footprint Rect2].
+func _oriented_box(n: Node3D) -> Array:
+	var inv := n.global_transform.affine_inverse()
+	var box := AABB()
+	var first := true
+	for mi in n.find_children("*", "MeshInstance3D", true, false):
+		if not mi.is_visible_in_tree() or mi.mesh == null:
+			continue
+		var b: AABB = (inv * mi.global_transform) * mi.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	var xf := n.global_transform
+	var scale := xf.basis.get_scale()
+	var centre := xf * box.get_center()
+	var basis := xf.basis.orthonormalized()
+	var size := box.size * scale
+	var foot := Rect2(Vector2(centre.x, centre.z), Vector2.ZERO)
+	for sx in [-0.5, 0.5]:
+		for sz in [-0.5, 0.5]:
+			var c := centre + basis * Vector3(size.x * sx, 0.0, size.z * sz)
+			foot = foot.expand(Vector2(c.x, c.z))
+	return [Transform3D(basis, Vector3(centre.x, centre.y, centre.z)), size, foot]
+
+
+func _box_xf(xf: Transform3D, size: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	cs.shape = shape
+	cs.transform = xf
+	_body.add_child(cs)
+
+
+func _world_box(n: Node) -> AABB:
+	var box := AABB()
+	var first := true
+	for mi in n.find_children("*", "MeshInstance3D", true, false):
+		if not mi.is_visible_in_tree() or mi.mesh == null:
+			continue
+		var b: AABB = mi.global_transform * mi.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	if n is MeshInstance3D:
+		var b2: AABB = n.global_transform * n.get_aabb()
+		box = b2 if first else box.merge(b2)
+	return box
+
+
+# ------------------------------------------------------------- candles
+
+# The props' FlameSpot markers become flame clusters (one light per prop) the demon can blow out.
+func _light_candles() -> void:
+	var clusters := []            # [room index, [positions]]
+	for i in rooms.size():
+		var spots := []
+		for s in rooms[i]["node"].find_children("FlameSpot*", "", true, false):
+			if s.is_visible_in_tree():
+				spots.append(s.global_position)
+		while not spots.is_empty():
+			var seed_p: Vector3 = spots.pop_back()
+			var group := [seed_p]
+			for j in range(spots.size() - 1, -1, -1):
+				if spots[j].distance_to(seed_p) < 0.9:
+					group.append(spots[j])
+					spots.remove_at(j)
+			clusters.append([i, group])
+	# share the lights out fairly: every room's first cluster first, then the rest
+	_shuffle(clusters)
+	clusters.sort_custom(func(a, b): return a[0] < b[0])
+	var given := {}
+	var order := []
+	for pass_n in 8:
+		for c in clusters:
+			if given.get(c[0], 0) == pass_n and not order.has(c):
+				order.append(c)
+				given[c[0]] = pass_n + 1
+	for c in clusters:
+		if not order.has(c):
+			order.append(c)
+	for n in order.size():
+		var group: Array = order[n][1]
+		var centre := Vector3.ZERO
+		for p in group:
+			centre += p
+		centre /= group.size()
+		var cl = FlameCluster.new()
+		add_child(cl)
+		cl.global_position = centre
+		cl.setup(group, n < MAX_CANDLE_LIGHTS)
+		candles.append({"pos": centre, "pos2": Vector2(centre.x, centre.z), "candle": cl, "lit": true, "timer": 0.0})
+
+
+# ----------------------------------------------------------- START and END
+
+func _start_room() -> void:
+	var r = rooms[0]
+	var entrance: Dictionary = {}
+	var exit: Dictionary = {}
+	for d in r["doors"]:
+		if d["entrance"]:
+			entrance = d
+		elif d["link"] >= 0:
+			exit = d
+	var c: Vector2 = r["pos"]
+	var e: Vector2 = entrance["pos"]
+	var p := c.lerp(e, 0.45)
+	player_start = Vector3(p.x, 0.0, p.y)
+	var x: Vector2 = exit["pos"]
+	var to := x - p
+	player_yaw = atan2(-to.x, -to.y)
+	door_pos = Vector3(e.x, 1.5, e.y)
+	# the salt threshold: the whole START room is safe; only the edge across the exit doorway is drawn
+	var o: Vector2 = exit["dir"]
+	var a := Vector2(-o.y, o.x)
+	var rect: Rect2 = r["rect"]
+	var depth := absf(o.x) * rect.size.x + absf(o.y) * rect.size.y
+	var ha := (absf(a.x) * rect.size.x + absf(a.y) * rect.size.y) * 0.5 + 0.1
+	var wall_mid := c + o * depth * 0.5
+	var cp := wall_mid + a * ha
+	var cm := wall_mid - a * ha
+	narthex_poly = PackedVector2Array([
+		x - a * 0.85 + o * 0.5, x + a * 0.85 + o * 0.5, x + a * 0.85,
+		cp, cp - o * (depth + 0.2), cm - o * (depth + 0.2), cm, x - a * 0.85,
+	])
+	for i in rooms.size():
+		if rooms[i]["kind"] == "big":
+			crossing_rect = rooms[i]["rect"]
+			demon_start = _free_near(rooms[i]["pos"])
+
+
+func _end_room() -> void:
+	var r = null
+	for x in rooms:
+		if x["kind"] == "end":
+			r = x
+	var room: Node3D = r["node"]
+	var altar: Node3D = room.get_node("Fixed/altar_0")
+	var ap := altar.global_position
+	altar_pos = Vector2(ap.x, ap.z)
+	altar_top = Vector3(ap.x, 1.03, ap.z)
+	var cross := room.get_node_or_null("Fixed/cross_1")
+	window_pos = cross.global_position + Vector3(0.0, -0.4, 0.0) if cross else Vector3(ap.x, 3.0, ap.z)
+	# the altar blocks the way; you can hide behind it
+	var foot := Rect2(ap.x - 0.9, ap.z - 0.45, 1.8, 0.9)
+	if r["rot"] % 2 == 1:
+		foot = Rect2(ap.x - 0.45, ap.z - 0.9, 0.9, 1.8)
+	# the unfinished circle, its gap turned towards the way in
+	var way_in := Vector2.ZERO
+	for d in r["doors"]:
+		if d["link"] >= 0:
+			way_in = d["pos"]
+	var gap_angle := (way_in - altar_pos).angle() + 0.35
+	var half_gap := 0.24
+	var ang := gap_angle + half_gap
+	var a_end := gap_angle - half_gap + TAU
+	while ang <= a_end:
+		altar_circle.append(altar_pos + Vector2(cos(ang), sin(ang)) * CIRCLE_RADIUS)
+		ang += 0.07
+	altar_circle.append(altar_pos + Vector2(cos(a_end), sin(a_end)) * CIRCLE_RADIUS)
+	# the dead exorcist beside his line, his chalk at its end, claw marks in the gap
+	var stop := gap_angle - half_gap
+	var line_end := altar_pos + Vector2(cos(stop), sin(stop)) * CIRCLE_RADIUS
+	var ahead := Vector2(-sin(stop), cos(stop))
+	var outward := Vector2(cos(stop), sin(stop))
+	var body = Models.dead_exorcist()
+	var o := line_end - ahead * 1.14 + outward * 0.47
+	body.transform = Transform3D(Basis(Vector3(ahead.x, 0.0, ahead.y), Vector3.UP, Vector3(-outward.x, 0.0, -outward.y)), Vector3(o.x, 0.0, o.y))
+	add_child(body)
+	var claws = Models.claw_marks()
+	var gap_dir := Vector2(cos(gap_angle), sin(gap_angle))
+	var claw_point := altar_pos + gap_dir * (CIRCLE_RADIUS - 0.75)
+	claws.position = Vector3(claw_point.x, 0.0, claw_point.y)
+	claws.rotation.y = -gap_angle
+	add_child(claws)
+	covers.append(foot)
+	_box(Transform3D.IDENTITY, Vector3(ap.x, 0.55, ap.z), Vector3(foot.size.x, 1.1, foot.size.y))
+
+
+# ----------------------------------------------------------------- relics
+
+func _place_relics() -> void:
+	var spots := []               # [room index, Vector3]
+	var book := Vector3.ZERO
+	var has_book := false
+	for i in rooms.size():
+		var r = rooms[i]
+		if r["kind"] in ["start", "end"]:
+			continue
+		var node: Node3D = r["node"]
+		for s in node.find_children("ItemSpot*", "", true, false) + node.find_children("item_*", "", true, false):
+			if s.is_visible_in_tree():
+				spots.append([i, s.global_position])
+	_shuffle(spots)
+	var kinds := ["chalice", "cross", "censer"]
+	if not has_book:
+		kinds.append("book")
+	var used_rooms := {}
+	for pass_n in 2:
+		for s in spots:
+			if relic_spots.size() >= kinds.size():
+				break
+			if pass_n == 0 and used_rooms.has(s[0]):
+				continue
+			var taken := false
+			for rs in relic_spots:
+				if rs["pos"].distance_to(s[1]) < 1.0:
+					taken = true
+			if taken:
+				continue
+			used_rooms[s[0]] = true
+			relic_spots.append({"pos": s[1], "kind": kinds[relic_spots.size()], "chapel": rooms[s[0]]["kind"] == "normal"})
+	while relic_spots.size() < kinds.size():      # never short: fall back to a room's middle
+		var r = rooms[1 + relic_spots.size() % (rooms.size() - 1)]
+		var p := _free_near(r["pos"])
+		relic_spots.append({"pos": Vector3(p.x, 0.0, p.y), "kind": kinds[relic_spots.size()], "chapel": false})
+	if has_book:
+		relic_spots.append({"pos": book, "kind": "book", "chapel": false})
+
+
+# ----------------------------------------------------------------- patrol
+
+# The demon walks the rooms in a fixed order (depth first from START, and back), so players can learn it.
+func _route() -> void:
+	var seen := {0: true}
+	var exit_pos := Vector2.ZERO
+	for d in rooms[0]["doors"]:
+		if d["link"] >= 0:
+			exit_pos = d["pos"] + d["dir"] * 1.2
+	patrol_points.append(exit_pos)
+	_walk(0, seen)
+	patrol_points.append(exit_pos)
+
+
+func _walk(i: int, seen: Dictionary) -> void:
+	for d in rooms[i]["doors"]:
+		var j: int = d["link"]
+		if j < 0 or seen.has(j):
+			continue
+		seen[j] = true
+		patrol_points.append(_free_near(rooms[j]["pos"]))
+		_walk(j, seen)
+		if i != 0:
+			patrol_points.append(_free_near(rooms[i]["pos"]))
+
+
+func _free_near(p: Vector2) -> Vector2:
+	if nav.is_free(p):
+		return p
+	for ring in range(1, 8):
+		for k in 12:
+			var q := p + Vector2(cos(k * TAU / 12.0), sin(k * TAU / 12.0)) * ring * 0.4
+			if nav.is_free(q):
+				return q
+	return p
+
+
+# ----------------------------------------------------------------- QUERIES (as level.gd)
+
+func near_cover(p: Vector2, dist: float) -> bool:
+	for r in covers:
+		var c = Vector2(clampf(p.x, r.position.x, r.end.x), clampf(p.y, r.position.y, r.end.y))
+		if c.distance_to(p) <= dist:
+			return true
+	return false
+
+
+func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> void:
+	_time += dt
+	for c in candles:
+		var d = c["pos2"].distance_to(demon_pos)
+		var near = 0.0
+		if demon_active:
+			near = clampf(1.0 - (d - 3.5) / 5.0, 0.0, 1.0)
+		if c["lit"]:
+			if demon_active and d < 3.5:
+				c["lit"] = false
+				c["timer"] = 25.0
+				c["candle"].blow_out()
+				sfx.play_at("candle_out", c["pos"], -8.0)
+		else:
+			c["timer"] -= dt
+			if c["timer"] <= 0.0 and (not demon_active or d > 7.0):
+				c["lit"] = true
+				c["candle"].relight()
+		c["candle"].tick(dt, near)

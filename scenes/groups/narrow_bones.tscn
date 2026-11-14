@@ -1,0 +1,16 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/bones.glb" id="r1"]
+[ext_resource type="PackedScene" path="res://assets/props/skull.glb" id="r2"]
+[ext_resource type="PackedScene" path="res://assets/props/lantern.glb" id="r3"]
+
+[node name="narrow_bones" type="Node3D"]
+
+[node name="bones_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0.25)
+
+[node name="skull_1" parent="." instance=ExtResource("r2")]
+transform = Transform3D(0.76604, 0, 0.64279, 0, 1, 0, -0.64279, 0, 0.76604, 0.35, 0, 0.2)
+
+[node name="lantern_2" parent="." instance=ExtResource("r3")]
+transform = Transform3D(0.98481, 0, 0.17365, 0, 1, 0, -0.17365, 0, 0.98481, -0.35, 0, 0.2)

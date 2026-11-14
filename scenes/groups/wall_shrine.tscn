@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/cross.glb" id="r1"]
+[ext_resource type="PackedScene" path="res://assets/props/candle_single.glb" id="r2"]
+[ext_resource type="PackedScene" path="res://assets/props/skull.glb" id="r3"]
+
+[node name="wall_shrine" type="Node3D"]
+
+[node name="cross_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 3.3, 0.06)
+
+[node name="candle_single_1" parent="." instance=ExtResource("r2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0.45, 0, 0.25)
+
+[node name="skull_2" parent="." instance=ExtResource("r3")]
+transform = Transform3D(0.93969, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.93969, -0.4, 0, 0.3)
+
+[node name="ItemSpot_0" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0.3)

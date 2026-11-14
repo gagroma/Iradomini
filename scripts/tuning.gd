@@ -59,3 +59,6 @@ const RESPAWN_MIN_DISTANCE := 15.0     # GUESS: it never comes back closer than 
 
 # --- Level ---
 const RELICS_NEEDED := 4
+# true = R.E.P.O.-style level from the 7 room templates (room_level.gd);
+# false = the original hand-coded cathedral (level.gd)
+const ROOM_LEVEL := true
