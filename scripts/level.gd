@@ -16,6 +16,22 @@ const Nav = preload("res://scripts/nav.gd")
 const Textures = preload("res://scripts/textures.gd")
 const Models = preload("res://scripts/models.gd")
 const PSX_SHADER = preload("res://shaders/psx.gdshader")
+const PSX_MODEL_SHADER = preload("res://shaders/psx_model.gdshader")
+const PEW = preload("res://assets/models/pew.glb")      # tools/make_pew.py
+const Candle = preload("res://scripts/candle.gd")       # the same candle as in your hand
+const Art = preload("res://scripts/church_art.gd")
+const WALL_PAINT_SHADER = preload("res://shaders/psx_wall_paint.gdshader")
+const FLOOR_SHADER = preload("res://shaders/psx_floor.gdshader")
+# public-domain paintings (Met Open Access, CC0) - see assets/art/CREDITS.md
+const ART_VAN_EYCK_CRUCIFIXION = preload("res://assets/art/van_eyck_crucifixion.png")
+const ART_VAN_EYCK_JUDGMENT = preload("res://assets/art/van_eyck_last_judgment.png")
+const ART_MICHAEL_DRAGON = preload("res://assets/art/saint_michael_dragon.png")
+const ART_RIES_MICHAEL = preload("res://assets/art/ries_saint_michael.png")
+const ART_ANGELICO = preload("res://assets/art/fra_angelico_crucifixion.png")
+const ART_CHRISTUS = preload("res://assets/art/christus_lamentation.png")
+const ART_MURILLO = preload("res://assets/art/murillo_crucifixion.png")
+const ART_DADDI = preload("res://assets/art/daddi_crucifixion.png")
+const ART_DUCCIO = preload("res://assets/art/duccio_madonna.png")
 
 const WALL_H := 6.0
 const WALL_T := 0.4
@@ -41,11 +57,15 @@ var door_pos := Vector3(0.0, 1.5, 5.6)
 
 var _mats := {}
 var _beam_mat: StandardMaterial3D
+var _pew_mats := []
+var _chapels := []
+var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
 
 
 func build(seed_value: int) -> void:
 	rng.seed = seed_value
+	_deco.seed = seed_value + 7919
 	bays = rng.randi_range(3, 4)
 	z_end = -0.2 - BAY * bays
 	nav = Nav.new()
@@ -54,10 +74,12 @@ func build(seed_value: int) -> void:
 
 	_build_narthex()
 	var chapels = _pick_chapels()
+	_chapels = chapels
 	_build_nave(chapels)
 	_build_crossing()
 	_build_apse()
 	_build_route(chapels)
+	_decorate()
 	nav.commit()
 
 
@@ -72,13 +94,44 @@ func _psx(tex: Texture2D, tint: Color, tex_scale: float) -> ShaderMaterial:
 	return m
 
 
+# Stone and floors draw themselves in their shaders (no texture).
+func _shaded(shader: Shader, tint: Color) -> ShaderMaterial:
+	var m = ShaderMaterial.new()
+	m.shader = shader
+	m.set_shader_parameter("tint", tint)
+	return m
+
+
 func _make_materials() -> void:
-	var brick = Textures.bricks(rng.randi())
-	_mats["wall"] = _psx(brick, Color(1.0, 1.0, 1.0), 0.5)
-	_mats["stone"] = _psx(brick, Color(1.3, 1.25, 1.35), 0.5)
-	_mats["floor"] = _psx(Textures.tiles(rng.randi()), Color(1.0, 1.0, 1.0), 0.5)
+	rng.randi()       # (these two once seeded textures; kept so a seed still builds
+	rng.randi()       #  the same layout as before)
+	_mats["wall"] = _shaded(WALL_PAINT_SHADER, Color(1.0, 1.0, 1.0))      # stone with old wall painting
+	_mats["stone"] = _shaded(WALL_PAINT_SHADER, Color(1.12, 1.1, 1.14))   # columns, tables: bare stone
+	_mats["stone"].set_shader_parameter("paint_bands", 0.0)
+	_mats["plinth"] = _mats["stone"].duplicate()       # the base course along the walls
+	_mats["plinth"].set_shader_parameter("tint", Color(0.82, 0.8, 0.82))
+	_mats["floor"] = _shaded(FLOOR_SHADER, Color(1.0, 1.0, 1.0))          # limestone flags (narthex)
+	_mats["floor_nave"] = _mats["floor"].duplicate()    # + marble runner, grave slabs in the aisles
+	_mats["floor_nave"].set_shader_parameter("aisle_half", 1.05)
+	_mats["floor_nave"].set_shader_parameter("ledgers", true)
+	_mats["floor_inlay"] = _mats["floor"].duplicate()   # marble chequer + the roundel (crossing)
+	_mats["floor_inlay"].set_shader_parameter("style", 1)
+	_mats["floor_chapel"] = _mats["floor"].duplicate()  # worn terracotta
+	_mats["floor_chapel"].set_shader_parameter("style", 2)
+	_mats["floor_apse"] = _mats["floor"].duplicate()    # red and grey marble lozenges
+	_mats["floor_apse"].set_shader_parameter("style", 3)
 	_mats["wood"] = _psx(Textures.wood(rng.randi()), Color(1.0, 1.0, 1.0), 1.0)
 	_mats["cloth"] = _psx(Textures.cloth(rng.randi()), Color(1.0, 1.0, 1.0), 2.0)
+	# pews: one oak texture, three slightly different stains, like pews
+	# bought and repaired over the years
+	var oak = Textures.oak(_deco.randi())
+	_pew_mats = []
+	for tint in [Color(1.0, 1.0, 1.0), Color(0.9, 0.86, 0.84), Color(1.06, 1.0, 0.92)]:
+		var m = ShaderMaterial.new()
+		m.shader = PSX_MODEL_SHADER
+		m.set_shader_parameter("tex", oak)
+		m.set_shader_parameter("tint", tint)
+		_pew_mats.append(m)
 	_beam_mat = StandardMaterial3D.new()
 	_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -116,14 +169,14 @@ func _collider(center: Vector3, size: Vector3) -> void:
 
 
 # The floor of one room (only the look - walking is decided by nav.carve).
-func _floor(x0: float, z0: float, x1: float, z1: float) -> void:
+func _floor(x0: float, z0: float, x1: float, z1: float, mat_name: String = "floor") -> void:
 	var mi = MeshInstance3D.new()
 	var pm = PlaneMesh.new()
 	pm.size = Vector2(x1 - x0, z1 - z0)
 	pm.subdivide_width = int((x1 - x0) / 2.0)
 	pm.subdivide_depth = int((z1 - z0) / 2.0)
 	mi.mesh = pm
-	mi.material_override = _mats["floor"]
+	mi.material_override = _mats[mat_name]
 	mi.position = Vector3((x0 + x1) * 0.5, 0.0, (z0 + z1) * 0.5)
 	add_child(mi)
 
@@ -140,6 +193,12 @@ func _obstacle(x0: float, z0: float, x1: float, z1: float, is_cover: bool = true
 		covers.append(rect)
 
 
+# A plinth: a course of bigger stones along the foot of a wall, standing out
+# a little on both sides (looks only).
+func _plinth(center: Vector3, size: Vector3) -> void:
+	_box(Vector3(center.x, 0.12, center.z), Vector3(size.x, 0.24, size.z), "plinth", false)
+
+
 # A wall running left-right at a fixed z. gaps = [[x_from, x_to], ...] doorways.
 func _wall_x(z: float, x0: float, x1: float, gaps: Array = [], h: float = WALL_H) -> void:
 	var cuts = gaps.duplicate()
@@ -148,10 +207,12 @@ func _wall_x(z: float, x0: float, x1: float, gaps: Array = [], h: float = WALL_H
 	for g in cuts:
 		if g[0] > cur:
 			_box(Vector3((cur + g[0]) * 0.5, h * 0.5, z), Vector3(g[0] - cur, h, WALL_T), "wall")
+			_plinth(Vector3((cur + g[0]) * 0.5, 0.0, z), Vector3(g[0] - cur, 0.0, WALL_T + 0.12))
 		_box(Vector3((g[0] + g[1]) * 0.5, 2.6 + (h - 2.6) * 0.5, z), Vector3(g[1] - g[0], h - 2.6, WALL_T), "wall", false)
 		cur = g[1]
 	if x1 > cur:
 		_box(Vector3((cur + x1) * 0.5, h * 0.5, z), Vector3(x1 - cur, h, WALL_T), "wall")
+		_plinth(Vector3((cur + x1) * 0.5, 0.0, z), Vector3(x1 - cur, 0.0, WALL_T + 0.12))
 
 
 # A wall running front-back at a fixed x. gaps = [[z_from, z_to], ...] doorways.
@@ -162,33 +223,123 @@ func _wall_z(x: float, z0: float, z1: float, gaps: Array = [], h: float = WALL_H
 	for g in cuts:
 		if g[0] > cur:
 			_box(Vector3(x, h * 0.5, (cur + g[0]) * 0.5), Vector3(WALL_T, h, g[0] - cur), "wall")
+			_plinth(Vector3(x, 0.0, (cur + g[0]) * 0.5), Vector3(WALL_T + 0.12, 0.0, g[0] - cur))
 		_box(Vector3(x, 2.6 + (h - 2.6) * 0.5, (g[0] + g[1]) * 0.5), Vector3(WALL_T, h - 2.6, g[1] - g[0]), "wall", false)
 		cur = g[1]
 	if z1 > cur:
 		_box(Vector3(x, h * 0.5, (cur + z1) * 0.5), Vector3(WALL_T, h, z1 - cur), "wall")
+		_plinth(Vector3(x, 0.0, (cur + z1) * 0.5), Vector3(WALL_T + 0.12, 0.0, z1 - cur))
 
 
-# A candle with a warm light. The demon blows these out as it passes.
-func _candle(p: Vector3, energy: float = 1.6, reach: float = 4.5) -> void:
-	var node = Models.candle()
-	node.position = p
+# One oak pew (model: tools/make_pew.py). Old pews never stand perfectly
+# in line, so each one is nudged and turned a tiny bit.
+func _pew(p: Vector3) -> void:
+	var node = PEW.instantiate()
+	node.position = p + Vector3(_deco.randf_range(-0.03, 0.03), 0.0, _deco.randf_range(-0.015, 0.015))
+	node.rotation.y = _deco.randf_range(-0.012, 0.012)
 	add_child(node)
-	var light = OmniLight3D.new()
-	light.position = p + Vector3(0.0, 0.3, 0.0)
-	light.light_color = Color(1.0, 0.62, 0.3)
-	light.light_energy = energy
-	light.omni_range = reach
-	light.omni_attenuation = 1.2
-	add_child(light)
+	var mat = _pew_mats[_deco.randi() % _pew_mats.size()]
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		mi.material_override = mat
+
+
+# --------------------------------------------------------------- DECORATION
+# The church's art: everything here is for the eyes only (no collisions, no
+# effect on the demon or the layout). See church_art.gd for where it comes from.
+
+# Put a node on a wall: at p, its front turned towards `facing` (flat).
+func _hang(node: Node3D, p: Vector3, facing: Vector3) -> void:
+	node.position = p
+	node.rotation.y = atan2(facing.x, facing.z)
+	add_child(node)
+
+
+func _decorate() -> void:
+	# --- nave: a stained-glass lancet high in the outer wall of every bay,
+	# throwing coloured moonlight down into the aisle
+	for b in range(bays):
+		var zc = _bay_center(b)
+		for side in [-1.0, 1.0]:
+			var into = Vector3(-side, 0.0, 0.0)
+			var glass = Art.lancet(Vector2(1.0, 2.4), _deco.randf() * 50.0)
+			_hang(glass, Vector3(side * 7.99, 4.1, zc), into)
+			var sl = SpotLight3D.new()
+			add_child(sl)
+			sl.position = Vector3(side * 7.7, 4.4, zc)
+			sl.look_at(sl.position + Vector3(-side * 0.9, -1.4, 0.0))
+			sl.light_color = Color(0.5, 0.42, 1.0).lerp(Color(1.0, 0.35, 0.3), _deco.randf() * 0.35)
+			sl.light_energy = 1.3
+			sl.spot_range = 9.0
+			sl.spot_angle = 20.0
+			sl.spot_attenuation = 1.2
+
+	# --- Stations of the Cross: I to XIV round the nave walls
+	var slots = []
+	for b in range(bays - 1, -1, -1):            # left wall, from the crossing to the door
+		var zc = _bay_center(b)
+		slots.append([Vector3(-7.99, 1.95, zc - 1.6), Vector3(1, 0, 0)])
+		slots.append([Vector3(-7.99, 1.95, zc + 1.6), Vector3(1, 0, 0)])
+	for b in range(bays):                        # right wall, from the door to the crossing
+		var zc = _bay_center(b)
+		slots.append([Vector3(7.99, 1.95, zc + 1.6), Vector3(-1, 0, 0)])
+		slots.append([Vector3(7.99, 1.95, zc - 1.6), Vector3(-1, 0, 0)])
+	for zx in [z_end - 8.3, z_end - 1.7]:        # the rest on the crossing walls
+		slots.append([Vector3(10.99, 1.95, zx), Vector3(-1, 0, 0)])
+		slots.append([Vector3(-10.99, 1.95, zx), Vector3(1, 0, 0)])
+	for i in range(mini(14, slots.size())):
+		_hang(Art.station(i + 1), slots[i][0], slots[i][1])
+
+	# --- crossing: the two wings of van Eyck's diptych face each other,
+	# the Crucifixion on the left and the Last Judgment (with hell) on the right,
+	# each with a votive candle under it
+	var zx = z_end - 5.0
+	_hang(Art.painting(ART_VAN_EYCK_CRUCIFIXION, 3.5, 0.16), Vector3(-10.99, 3.25, zx), Vector3(1, 0, 0))
+	_hang(Art.painting(ART_VAN_EYCK_JUDGMENT, 3.5, 0.16), Vector3(10.99, 3.25, zx), Vector3(-1, 0, 0))
+	for side in [-1.0, 1.0]:
+		_box(Vector3(side * 10.87, 1.05, zx), Vector3(0.26, 0.05, 0.34), "wood", false)
+		_candle(Vector3(side * 10.85, 1.075, zx), 1.5, 5.5, false, true)
+
+	# --- chapels: an altarpiece above each little altar table
+	var chapel_art = [ART_ANGELICO, ART_CHRISTUS, ART_MURILLO, ART_DADDI]
+	for i in range(_chapels.size()):
+		var side = _chapels[i][0]
+		var zc = _bay_center(_chapels[i][1])
+		var tex = chapel_art[i % chapel_art.size()]
+		var h = 1.0 if tex.get_width() > tex.get_height() else 1.35
+		_hang(Art.painting(tex, h, 0.11), Vector3(side * 12.39, 2.25, zc), Vector3(-side, 0, 0))
+
+	# --- apse: gold mosaics on both side walls, and Saint Michael
+	# casting down the devil as the altarpiece
+	var zm = z_end - 13.5
+	_hang(Art.mosaic(ART_DUCCIO, Vector2(6.2, 4.4), 3.2, 1.0), Vector3(-4.99, 4.3, zm), Vector3(1, 0, 0))
+	_hang(Art.mosaic(ART_MICHAEL_DRAGON, Vector2(6.2, 4.4), 3.2, 2.0), Vector3(4.99, 4.3, zm), Vector3(-1, 0, 0))
+	_hang(Art.painting(ART_RIES_MICHAEL, 1.2, 0.12, true), Vector3(0.0, 1.15 + 0.12 + 0.6, altar_pos.y - 0.38), Vector3(0, 0, 1))
+
+
+# A candle in a brass chamberstick, standing at p (the bottom of the dish).
+# The demon blows these out as it passes. Old candles are of all heights;
+# fresh = true for a new one (the altar).
+func _candle(p: Vector3, energy: float = 1.6, reach: float = 4.5, fresh: bool = false, decor: bool = false) -> void:
+	if not decor:
+		rng.randf()   # (kept so a seed still builds the same layout as before)
+	var c = Candle.new()
+	c.held = false
+	c.burns = false
+	c.left = 1.0 if fresh else _deco.randf_range(0.3, 0.95)
+	c.energy = energy
+	c.reach = reach
+	c.attenuation = 1.2
+	c.light_lift = 0.2
+	c.self_layer = 1 << (10 + candles.size() % 9)     # layers 11-19 (20 is your candle)
+	c.position = p
+	c.rotation.y = _deco.randf() * TAU
+	add_child(c)
 	candles.append({
-		"pos": p,
+		"pos": p + Vector3(0.0, 0.12, 0.0),
 		"pos2": Vector2(p.x, p.z),
-		"light": light,
-		"flame": node.get_node("Flame"),
+		"candle": c,
 		"lit": true,
 		"timer": 0.0,
-		"base": energy,
-		"phase": rng.randf() * TAU,
 	})
 
 
@@ -241,8 +392,8 @@ func _build_narthex() -> void:
 	_carve(-1.0, -0.5, 1.0, 0.5)
 	# the big door you came in through (it will not open again)
 	_box(Vector3(0.0, 1.5, 5.62), Vector3(2.2, 3.0, 0.1), "wood", false)
-	_candle(Vector3(-3.6, 1.5, 0.6), 1.4, 4.0)
-	_candle(Vector3(3.6, 1.5, 0.6), 1.4, 4.0)
+	_candle(Vector3(-3.6, 1.45, 0.5), 1.4, 4.0)
+	_candle(Vector3(3.6, 1.45, 0.5), 1.4, 4.0)
 	_box(Vector3(-3.6, 1.42, 0.5), Vector3(0.2, 0.06, 0.3), "wood", false)
 	_box(Vector3(3.6, 1.42, 0.5), Vector3(0.2, 0.06, 0.3), "wood", false)
 	# The safe area: the whole narthex. Only its first edge (the line across
@@ -269,7 +420,7 @@ func _build_nave(chapels: Array) -> void:
 	# floor, one piece per bay
 	for b in range(bays):
 		var z0 = -0.2 - BAY * (b + 1)
-		_floor(-8.0, z0, 8.0, z0 + BAY)
+		_floor(-8.0, z0, 8.0, z0 + BAY, "floor_nave")
 	_carve(-7.7, z_end, 7.7, -0.5)
 
 	# outer walls with a doorway for every chapel
@@ -292,7 +443,7 @@ func _build_nave(chapels: Array) -> void:
 			_box(Vector3(x, WALL_H * 0.5, zk), Vector3(0.8, WALL_H, 0.8), "stone")
 			_box(Vector3(x, 0.2, zk), Vector3(1.05, 0.4, 1.05), "stone", false)
 			_obstacle(x - 0.4, zk - 0.4, x + 0.4, zk + 0.4)
-			_candle(Vector3(x - side * 0.52, 1.7, zk))
+			_candle(Vector3(x - side * 0.5, 1.65, zk))
 			_box(Vector3(x - side * 0.5, 1.62, zk), Vector3(0.2, 0.06, 0.2), "wood", false)
 
 	# GDD "Nef": pews in solid blocks, a centre aisle and cross gaps.
@@ -303,10 +454,7 @@ func _build_nave(chapels: Array) -> void:
 			var x = side * 2.3
 			for row in range(4):
 				var zr = zc - 1.3 + row * 0.87
-				_box(Vector3(x, 0.42, zr), Vector3(2.4, 0.08, 0.4), "wood", false)
-				_box(Vector3(x, 0.66, zr + 0.2), Vector3(2.4, 0.56, 0.07), "wood", false)
-				_box(Vector3(x - 1.17, 0.3, zr), Vector3(0.07, 0.6, 0.42), "wood", false)
-				_box(Vector3(x + 1.17, 0.3, zr), Vector3(0.07, 0.6, 0.42), "wood", false)
+				_pew(Vector3(x, 0.0, zr))
 			_collider(Vector3(x, 0.47, zc), Vector3(2.4, 0.94, 3.4))
 			_obstacle(x - 1.2, zc - 1.7, x + 1.2, zc + 1.7)
 		if b % 2 == 1:
@@ -319,8 +467,8 @@ func _build_nave(chapels: Array) -> void:
 		var zc = _bay_center(chapels[i][1])
 		var xa = 8.4          # where the chapel starts (just outside the nave wall)
 		var xb = 12.4         # where it ends
-		_floor(minf(side * xa, side * xb), zc - 1.8, maxf(side * xa, side * xb), zc + 1.8)
-		_floor(minf(side * 8.0, side * 8.4), zc - 0.9, maxf(side * 8.0, side * 8.4), zc + 0.9)
+		_floor(minf(side * xa, side * xb), zc - 1.8, maxf(side * xa, side * xb), zc + 1.8, "floor_chapel")
+		_floor(minf(side * 8.0, side * 8.4), zc - 0.9, maxf(side * 8.0, side * 8.4), zc + 0.9, "floor_chapel")
 		_carve(minf(side * 8.7, side * 12.1), zc - 1.5, maxf(side * 8.7, side * 12.1), zc + 1.5)
 		_carve(minf(side * 7.6, side * 8.8), zc - 0.7, maxf(side * 7.6, side * 8.8), zc + 0.7)
 		_wall_z(side * 12.6, zc - 2.2, zc + 2.2)
@@ -345,7 +493,9 @@ func _build_nave(chapels: Array) -> void:
 # ("Kafedra") standing in plain sight with the prayer book on it.
 
 func _build_crossing() -> void:
-	_floor(-11.0, z_end - 10.0, 11.0, z_end)
+	_floor(-11.0, z_end - 10.0, 11.0, z_end, "floor_inlay")
+	_mats["floor_inlay"].set_shader_parameter("centre", Vector2(0.0, z_end - 5.0))
+	_mats["floor_inlay"].set_shader_parameter("radius", 2.6)
 	_carve(-10.7, z_end - 9.7, 10.7, z_end - 0.3)
 	_carve(-7.7, z_end - 0.4, 7.7, z_end + 0.1)
 	_wall_x(z_end, -11.4, -8.0)
@@ -375,7 +525,7 @@ func _build_crossing() -> void:
 
 func _build_apse() -> void:
 	var z_back = z_end - 17.0
-	_floor(-5.0, z_back, 5.0, z_end - 10.0)
+	_floor(-5.0, z_back, 5.0, z_end - 10.0, "floor_apse")
 	_carve(-4.7, z_back + 0.3, 4.7, z_end - 9.6)
 	_wall_z(-5.2, z_back - 0.2, z_end - 9.8, [], 8.0)
 	_wall_z(5.2, z_back - 0.2, z_end - 9.8, [], 8.0)
@@ -387,8 +537,8 @@ func _build_apse() -> void:
 	_box(Vector3(0.0, 0.55, za), Vector3(2.6, 1.1, 1.0), "stone")
 	_box(Vector3(0.0, 1.12, za), Vector3(2.7, 0.06, 1.1), "cloth", false)
 	_obstacle(-1.3, za - 0.5, 1.3, za + 0.5)
-	_candle(Vector3(-1.1, 1.15, za), 1.8, 5.0)
-	_candle(Vector3(1.1, 1.15, za), 1.8, 5.0)
+	_candle(Vector3(-1.1, 1.15, za), 1.8, 5.0, true)
+	_candle(Vector3(1.1, 1.15, za), 1.8, 5.0, true)
 	_moon_shaft(Vector2(0.0, za + 1.2), 2.2, 1.4)
 
 	# the unfinished circle: a ring of radius 2.5 m with a 1.1 m gap
@@ -402,12 +552,18 @@ func _build_apse() -> void:
 		a += 0.07
 	altar_circle.append(altar_pos + Vector2(cos(a_end), sin(a_end)) * radius)
 
-	# the body lies in the gap, one arm reaching for the other end of the line
+	# He died drawing it: his line stops at the piece of chalk in his reaching
+	# hand, just short of the gap. He lies beside the line, outside the circle,
+	# along the way he was drawing - never on top of his own chalk.
 	var gap_dir = Vector2(cos(gap_angle), sin(gap_angle))
-	var gap_point = altar_pos + gap_dir * radius
+	var stop = gap_angle - half_gap                      # where the line ends
+	var line_end = altar_pos + Vector2(cos(stop), sin(stop)) * radius
+	var ahead = Vector2(-sin(stop), cos(stop))           # the way he was drawing
+	var outward = Vector2(cos(stop), sin(stop))
 	var body = Models.dead_exorcist()
-	body.position = Vector3(gap_point.x, 0.0, gap_point.y)
-	body.rotation.y = -gap_angle - PI * 0.5 + 0.25
+	# model: head along +X, his chalk at (1.14, 0, 0.47), his right side +Z
+	var o = line_end - ahead * 1.14 + outward * 0.47
+	body.transform = Transform3D(Basis(Vector3(ahead.x, 0.0, ahead.y), Vector3.UP, Vector3(-outward.x, 0.0, -outward.y)), Vector3(o.x, 0.0, o.y))
 	add_child(body)
 	var claws = Models.claw_marks()
 	var claw_point = altar_pos + gap_dir * (radius - 0.75)
@@ -484,19 +640,19 @@ func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> v
 	_time += dt
 	for c in candles:
 		var d = c["pos2"].distance_to(demon_pos)
+		# the flame shudders as the demon comes near, then it goes out
+		var near = 0.0
+		if demon_active:
+			near = clampf(1.0 - (d - 3.5) / 5.0, 0.0, 1.0)
 		if c["lit"]:
 			if demon_active and d < 3.5:
 				c["lit"] = false
 				c["timer"] = 25.0
-				c["light"].visible = false
-				c["flame"].visible = false
+				c["candle"].blow_out()
 				sfx.play_at("candle_out", c["pos"], -8.0)
-			else:
-				var flick = 0.9 + 0.1 * sin(_time * 9.0 + c["phase"]) * sin(_time * 3.3 + c["phase"] * 2.0)
-				c["light"].light_energy = c["base"] * flick
 		else:
 			c["timer"] -= dt
 			if c["timer"] <= 0.0 and (not demon_active or d > 7.0):
 				c["lit"] = true
-				c["light"].visible = true
-				c["flame"].visible = true
+				c["candle"].relight()
+		c["candle"].tick(dt, near)

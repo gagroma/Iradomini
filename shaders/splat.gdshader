@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
-// PIXEL-SPLAT MODELS (the demon, relics, candles, the body).
+// PIXEL-SPLAT MODELS (the demon, relics, the body).
 // Inspiration: the pixel-art Gaussian splat clip used as the style reference,
 // and the gen.py script that made the first two demon models. A model is
 // thousands of tiny flat squares; each square has one flat colour from a short

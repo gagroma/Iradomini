@@ -14,6 +14,8 @@ extends Node3D
 # that, the chalk you used burns away.
 
 const T = preload("res://scripts/tuning.gd")
+const LINE_SHADER = preload("res://shaders/chalk_line.gdshader")
+const LINE_Y := 0.012               # height above the floor (just enough not to flicker)
 
 signal loop_closed(loop)
 signal stroke_burned
@@ -23,7 +25,6 @@ var chalk: float = T.CHALK_MAX           # metres of chalk left in your hand
 var loops := []                     # every closed circle (each one is a Dictionary)
 var stroke := PackedVector2Array()  # the line being drawn right now
 var stroke_len := 0.0
-var regenerating := false           # true after a banishing, until the chalk is back
 var jitter := 0.0                   # 0..1 - the line shakes when the demon is near
 
 var _next_id := 1
@@ -36,7 +37,9 @@ var _erase_t := 0.0
 var _decor := PackedVector2Array()  # the old exorcist's unfinished circle
 var _decor_node: MeshInstance3D
 var _decor_mesh := ImmediateMesh.new()
-var _decor_mat: StandardMaterial3D
+var _decor_mat: ShaderMaterial
+var _stroke_seed := 0.0             # every line gets its own grain and wobble
+var _rng := RandomNumberGenerator.new()
 var _decor_close := -1.0            # 0..1 while the ending closes the gap
 
 
@@ -46,14 +49,21 @@ func setup(nav_grid) -> void:
 	_stroke_node.mesh = _stroke_mesh
 	_stroke_node.material_override = _line_material(Color(0.8, 0.78, 0.7))
 	add_child(_stroke_node)
+	_rng.randomize()
 
 
-func _line_material(c: Color) -> StandardMaterial3D:
-	var m = StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = c
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+# Chalk look: shaders/chalk_line.gdshader (ragged, grainy, streaky).
+func _line_material(c: Color, line_seed: float = -1.0) -> ShaderMaterial:
+	var m = ShaderMaterial.new()
+	m.shader = LINE_SHADER
+	m.set_shader_parameter("color", c)
+	m.set_shader_parameter("seed", line_seed if line_seed >= 0.0 else _rng.randf() * 100.0)
 	return m
+
+
+func _set_line(mat: ShaderMaterial, c: Color, fade: float = 0.0) -> void:
+	mat.set_shader_parameter("color", c)
+	mat.set_shader_parameter("fade", fade)
 
 
 # ------------------------------------------------------------------ DRAWING
@@ -67,6 +77,8 @@ func try_add_point(p: Vector2) -> void:
 	if stroke.is_empty():
 		stroke.append(p)
 		stroke_len = 0.0
+		_stroke_seed = _rng.randf() * 100.0
+		_stroke_node.material_override.set_shader_parameter("seed", _stroke_seed)
 		return
 	var last = stroke[stroke.size() - 1]
 	var d = last.distance_to(p)
@@ -143,7 +155,8 @@ func _make_loop(poly: PackedVector2Array, permanent: bool) -> Dictionary:
 	var rect = Rect2(poly[0], Vector2.ZERO)
 	for p in poly:
 		rect = rect.expand(p)
-	var mat = _line_material(Color(1.0, 0.96, 0.82))
+	var line_seed = _stroke_seed if not permanent else 3.0
+	var mat = _line_material(Color(1.0, 0.96, 0.82), line_seed)
 	var mesh = ImmediateMesh.new()
 	var node = MeshInstance3D.new()
 	node.mesh = mesh
@@ -159,14 +172,15 @@ func _make_loop(poly: PackedVector2Array, permanent: bool) -> Dictionary:
 		"mat": mat,
 		"permanent": permanent,
 		"flash": 1.0,       # bright for a moment when the circle closes
-		"trap": 0.0,        # 0..1 progress of a banishing inside this circle
+		"trap": 0.0,        # 0..1 gold glow after it banished the demon
+		"seed": line_seed,
 	}
 	_next_id += 1
 	if permanent:
 		# the salt line at the door: only the piece across the doorway is visible
-		fill_ribbon(mesh, PackedVector2Array([poly[0], poly[1]]), false, 0.14)
+		fill_ribbon(mesh, PackedVector2Array([poly[0], poly[1]]), false, 0.14, 0.0, line_seed)
 	else:
-		fill_ribbon(mesh, poly, true, T.LINE_WIDTH * 1.2)
+		fill_ribbon(mesh, poly, true, T.LINE_WIDTH * 1.2, 0.0, line_seed)
 	loops.append(loop)
 	nav.set_chalk(loops)
 	return loop
@@ -186,50 +200,93 @@ func _remove_loop(loop: Dictionary) -> void:
 	nav.set_chalk(loops)
 
 
-func _burn(pts: PackedVector2Array) -> void:
+func _burn(pts: PackedVector2Array, line_seed: float = -1.0) -> void:
 	if pts.size() < 2:
 		return
-	var mat = _line_material(Color(1.0, 0.5, 0.15))
+	if line_seed < 0.0:
+		line_seed = _stroke_seed
+	var mat = _line_material(Color(1.0, 0.5, 0.15), line_seed)
 	var mesh = ImmediateMesh.new()
 	var node = MeshInstance3D.new()
 	node.mesh = mesh
 	node.material_override = mat
 	add_child(node)
-	fill_ribbon(mesh, pts, false, T.LINE_WIDTH)
+	fill_ribbon(mesh, pts, false, T.LINE_WIDTH, 0.0, line_seed)
 	_burns.append({"node": node, "mat": mat, "t": 0.6})
 
 
-# Draw a line as a flat ribbon lying on the floor.
-static func fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble := 0.0, time := 0.0) -> void:
+# Draw a line as a flat ribbon lying on the floor, the way a hand draws it:
+# the points are smoothed into a curve, the hand presses harder and lighter
+# along the way (width), trembles a little sideways, and an open stroke
+# tapers where the chalk first touched and where it lifted off.
+# Everything depends on the distance along the line, not on time, so a line
+# keeps its look while it grows and after it closes.
+static func fill_ribbon(mesh: ImmediateMesh, pts: PackedVector2Array, closed: bool, width: float, wobble := 0.0, line_seed := 0.0, time := 0.0) -> void:
 	mesh.clear_surfaces()
-	var n = pts.size()
-	if n < 2:
+	if pts.size() < 2:
 		return
+	var curve = _smooth(pts, closed, 3)
+	var n = curve.size()
+	var count = n + 1 if closed else n
+	# distance along the line at every point
+	var dist = PackedFloat32Array()
+	dist.resize(count)
+	dist[0] = 0.0
+	for k in range(1, count):
+		dist[k] = dist[k - 1] + curve[k % n].distance_to(curve[(k - 1) % n])
+	var total = dist[count - 1]
+
 	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
-	var count = n
-	if closed:
-		count = n + 1
 	for k in range(count):
 		var i = k % n
-		var prev = pts[i]
-		var next = pts[i]
-		if closed or i > 0:
-			prev = pts[(i - 1 + n) % n]
-		if closed or i < n - 1:
-			next = pts[(i + 1) % n]
+		var prev = curve[(i - 1 + n) % n] if (closed or i > 0) else curve[i]
+		var next = curve[(i + 1) % n] if (closed or i < n - 1) else curve[i]
 		var dir = next - prev
 		if dir.length() < 0.0001:
 			dir = Vector2(1.0, 0.0)
 		dir = dir.normalized()
-		# hand-drawn look: the width changes a little from point to point
-		var w = width * (0.7 + 0.6 * absf(sin(float(i) * 12.9898)))
-		var side = Vector2(-dir.y, dir.x) * w * 0.5
-		var p = pts[i]
+		var normal = Vector2(-dir.y, dir.x)
+		var s = dist[k]
+		var pressure = 0.5 + 0.5 * (0.6 * sin(s * 2.3 + line_seed) + 0.4 * sin(s * 5.9 + line_seed * 1.7))
+		var w = width * (0.78 + 0.32 * pressure)
+		if not closed:
+			w *= lerpf(0.35, 1.0, smoothstep(0.0, 0.06, s)) * lerpf(0.45, 1.0, smoothstep(0.0, 0.04, total - s))
+		var tremor = 0.0035 * (sin(s * 11.0 + line_seed * 3.0) + 0.6 * sin(s * 26.0 + line_seed))
+		var p = curve[i] + normal * tremor
 		if wobble > 0.0:
 			p += Vector2(sin(time * 31.0 + i * 1.7), cos(time * 27.0 + i * 2.3)) * wobble
-		mesh.surface_add_vertex(Vector3(p.x - side.x, 0.03, p.y - side.y))
-		mesh.surface_add_vertex(Vector3(p.x + side.x, 0.03, p.y + side.y))
+		# the ribbon is wider than the chalk: the shader tears the edges
+		var half = normal * (w * 0.5 / 0.62)
+		mesh.surface_set_color(Color(pressure, 0.0, 0.0))
+		mesh.surface_set_uv(Vector2(s, 0.0))
+		mesh.surface_add_vertex(Vector3(p.x - half.x, LINE_Y, p.y - half.y))
+		mesh.surface_set_color(Color(pressure, 0.0, 0.0))
+		mesh.surface_set_uv(Vector2(s, 1.0))
+		mesh.surface_add_vertex(Vector3(p.x + half.x, LINE_Y, p.y + half.y))
 	mesh.surface_end()
+
+
+# Catmull-Rom: a smooth curve through the points (the mouse gives a point
+# every 6 cm, which would show as corners).
+static func _smooth(pts: PackedVector2Array, closed: bool, steps: int) -> PackedVector2Array:
+	var n = pts.size()
+	if n < 3:
+		return pts
+	var out = PackedVector2Array()
+	var segs = n if closed else n - 1
+	for i in range(segs):
+		var p0 = pts[(i - 1 + n) % n] if (closed or i > 0) else pts[i]
+		var p1 = pts[i]
+		var p2 = pts[(i + 1) % n]
+		var p3 = pts[(i + 2) % n] if (closed or i + 2 < n) else p2
+		for k in range(steps):
+			var t = float(k) / steps
+			var t2 = t * t
+			var t3 = t2 * t
+			out.append(0.5 * ((2.0 * p1) + (p2 - p0) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3))
+	if not closed:
+		out.append(pts[n - 1])
+	return out
 
 
 # ----------------------------------------------------------------- THE RULE
@@ -257,6 +314,26 @@ func segment_blocked(a: Vector2, b: Vector2) -> bool:
 			if Geometry2D.segment_intersects_segment(a, b, pts[i], pts[(i + 1) % count]) != null:
 				return true
 	return false
+
+
+# The nearest point of any closed line to p, if one is closer than `within`;
+# otherwise null. The demon uses it to keep its whole body off the lines.
+func closest_line_point(p: Vector2, within: float) -> Variant:
+	var best = null
+	var best_d = within
+	for loop in loops:
+		if not loop["rect"].grow(within).has_point(p):
+			continue
+		var pts = loop["pts"]
+		var count = pts.size()
+		var segs = count if not loop["permanent"] else 1
+		for i in range(segs):
+			var q = Geometry2D.get_closest_point_to_segment(p, pts[i], pts[(i + 1) % count])
+			var d = q.distance_to(p)
+			if d < best_d:
+				best_d = d
+				best = q
+	return best
 
 
 # The player-made circle that p stands inside, or null.
@@ -322,12 +399,11 @@ func erase_cancel() -> void:
 
 # --------------------------------------------------------------- BANISHING
 
-# GDD: after a successful banishing the supply is emptied and comes back in 1 minute.
+# The circle caught the demon: it blazes gold for a moment, then stays on the
+# floor as an ordinary circle. Its chalk comes back only when you rub it out.
 func on_banish(loop: Dictionary) -> void:
-	_burn(loop["pts"])
-	_remove_loop(loop)
-	chalk = 0.0
-	regenerating = true
+	loop["trap"] = 1.0
+	loop["flash"] = 1.0
 
 
 # ------------------------------------------------------- THE ALTAR'S CIRCLE
@@ -335,12 +411,13 @@ func on_banish(loop: Dictionary) -> void:
 # The old exorcist's circle: a line with a gap. It blocks nothing.
 func add_decor(pts: PackedVector2Array) -> void:
 	_decor = pts
-	_decor_mat = _line_material(Color(0.5, 0.48, 0.42))
+	_decor_mat = _line_material(Color(0.7, 0.67, 0.58), 61.0)
+	_decor_mat.set_shader_parameter("fade", 0.15)        # old, scuffed chalk
 	_decor_node = MeshInstance3D.new()
 	_decor_node.mesh = _decor_mesh
 	_decor_node.material_override = _decor_mat
 	add_child(_decor_node)
-	fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3)
+	fill_ribbon(_decor_mesh, _decor, false, T.LINE_WIDTH * 1.3, 0.0, 61.0)
 
 
 # The ending: the gap closes by itself. The circle is full.
@@ -354,40 +431,44 @@ func _process(dt: float) -> void:
 
 	# the line being drawn (shakes when the demon is close - looks only)
 	if stroke.size() >= 2:
-		fill_ribbon(_stroke_mesh, stroke, false, T.LINE_WIDTH, jitter * 0.025, _time)
+		fill_ribbon(_stroke_mesh, stroke, false, T.LINE_WIDTH, jitter * 0.025, _stroke_seed, _time)
 
-	# closed circles: flash when new, turn gold while they hold the demon
+	# closed circles: flash when new, blaze gold when they banish the demon
 	for loop in loops:
 		loop["flash"] = maxf(0.0, loop["flash"] - dt * 1.5)
 		var col = Color(0.95, 0.9, 0.74)
 		if loop["permanent"]:
 			col = Color(0.9, 0.92, 1.0)
+		loop["trap"] = maxf(0.0, loop["trap"] - dt * 0.4)     # the gold of a banishing fades
 		var trap = loop["trap"]
 		if trap > 0.0:
 			var pulse = 0.5 + 0.5 * sin(_time * (4.0 + trap * 10.0))
 			col = col.lerp(Color(1.0, 0.72, 0.15), 0.4 + 0.6 * trap)
 			col = col.lerp(Color(1.0, 1.0, 0.9), pulse * 0.35)
 		col = col.lerp(Color(1.6, 1.6, 1.5), loop["flash"])
+		var fade = 0.0
 		if loop["id"] == _erase_id:
-			col = col.lerp(Color(0.12, 0.11, 0.1), _erase_t / T.ERASE_TIME)
-		loop["mat"].albedo_color = col
+			# rubbing it out: the chalk smears thinner and greyer
+			var e = _erase_t / T.ERASE_TIME
+			col = col.lerp(Color(0.45, 0.43, 0.4), e)
+			fade = e * 0.85
+		_set_line(loop["mat"], col, fade)
 
 	# burnt lines fade from orange to nothing
 	for i in range(_burns.size() - 1, -1, -1):
 		var burn = _burns[i]
 		burn["t"] -= dt
 		var k = clampf(burn["t"] / 0.6, 0.0, 1.0)
-		burn["mat"].albedo_color = Color(1.0 * k, 0.45 * k * k, 0.1 * k * k)
+		_set_line(burn["mat"], Color(1.0 * k, 0.45 * k * k, 0.1 * k * k), (1.0 - k) * 0.6)
 		if burn["t"] <= 0.0:
 			burn["node"].queue_free()
 			_burns.remove_at(i)
 
-	# chalk growing back after a banishing
-	if regenerating:
-		chalk += T.CHALK_MAX / T.CHALK_REGEN_TIME * dt
-		if chalk + locked() >= T.CHALK_MAX:
-			chalk = maxf(0.0, T.CHALK_MAX - locked())
-			regenerating = false
+	# chalk slowly comes back by itself, but only up to what is not lying on
+	# the floor in your circles (rub them out to get that back at once)
+	var room = T.CHALK_MAX - locked() - stroke_len - chalk
+	if room > 0.0:
+		chalk += minf(room, T.CHALK_MAX / T.CHALK_REGEN_TIME * dt)
 
 	# ending animation of the altar circle
 	if _decor_close >= 0.0 and _decor_close < 1.0:
@@ -396,5 +477,5 @@ func _process(dt: float) -> void:
 		var last = _decor[_decor.size() - 1]
 		var pts = _decor.duplicate()
 		pts.append(last.lerp(first, _decor_close))
-		fill_ribbon(_decor_mesh, pts, _decor_close >= 1.0, T.LINE_WIDTH * 1.5)
-		_decor_mat.albedo_color = Color(0.5, 0.48, 0.42).lerp(Color(1.4, 1.1, 0.5), _decor_close)
+		fill_ribbon(_decor_mesh, pts, _decor_close >= 1.0, T.LINE_WIDTH * 1.5, 0.0, 61.0)
+		_set_line(_decor_mat, Color(0.7, 0.67, 0.58).lerp(Color(1.4, 1.1, 0.5), _decor_close), 0.15 * (1.0 - _decor_close))

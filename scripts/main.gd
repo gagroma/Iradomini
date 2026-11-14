@@ -35,6 +35,8 @@ var post: ShaderMaterial
 
 var game_state := "play"        # "play", "dead" or "ending"
 var fear := 0.0                 # 0..1 from how close the demon is
+var _hide := 0.0                # 0..1 screen effect while you hide
+var _alert := 0.0               # 0..1 red edge while the demon sees you
 var relics := []                # {"node", "light", "pos", "kind", "taken", "chapel"}
 var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
@@ -91,6 +93,8 @@ func _ready() -> void:
 	demon = Demon.new()
 	add_child(demon)
 	demon.setup(self)
+	if not T.DEMON_ENABLED:
+		demon.switch_off()
 
 	_make_post()
 	hud = Hud.new()
@@ -273,7 +277,9 @@ func player_step(running: bool, crouching: bool) -> void:
 		radius = T.NOISE_CROUCH
 		volume = -30.0
 	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
-	demon.hear(player.pos2(), radius)
+	var heard = demon.hear(player.pos2(), radius)
+	# arcs on screen: crouch 1, walk 2, run 4, a relic or two more
+	hud.stealth.step(clampi(int(round(sqrt(radius) * 1.25)), 1, 5), heard)
 
 
 func on_player_hit() -> void:
@@ -290,11 +296,11 @@ func on_player_died() -> void:
 
 
 func on_banished(loop) -> void:
-	if loop != null:
-		chalk.on_banish(loop)
+	chalk.on_banish(loop)
 	_flash = 0.7
 	sfx.play("banish", 0.0)
-	hud.show_note("Demon banished  ·  Chalk refills in one minute", 6.0)
+	player.shake(0.4)
+	hud.show_note("Demon banished  ·  Hold RMB to erase the circle and recover chalk", 6.0)
 
 
 func on_demon_returned() -> void:
@@ -304,6 +310,9 @@ func on_demon_returned() -> void:
 
 func on_demon_scream() -> void:
 	fear = maxf(fear, 0.8)
+	# the scream shakes the world: hard up close, a tremor from across the church
+	var near = clampf(1.0 - demon.distance_to_player() / 16.0, 0.0, 1.0)
+	player.shake(0.15 + 0.75 * near)
 
 
 func _on_loop_closed(_loop) -> void:
@@ -402,13 +411,20 @@ func _process(dt: float) -> void:
 	post.set_shader_parameter("hurt", _hurt)
 	post.set_shader_parameter("flash", maxf(_flash, white))
 	post.set_shader_parameter("fade", _fade)
+	# hiding narrows and cools the view; being seen puts a red edge round it
+	var playing = game_state == "play"
+	_hide = lerpf(_hide, 1.0 if player.is_hidden_now and playing else 0.0, 1.0 - exp(-6.0 * dt))
+	var aware = demon.awareness() if demon.is_active() and playing else 0
+	_alert = lerpf(_alert, 1.0 if aware == 2 else 0.0, 1.0 - exp(-4.0 * dt))
+	post.set_shader_parameter("hide", _hide)
+	post.set_shader_parameter("alert", _alert)
+	hud.stealth.set_state(aware, player.crouching and playing, player.is_hidden_now and playing)
+	hud.stealth.set_stamina(player.stamina / T.STAMINA_MAX, player.winded)
 
 	# words on screen
 	hud.set_prompt(_prompt_text())
 	hud.set_dot(player.aim_valid and game_state == "play")
 	var words = "Relics %d/%d" % [carried + placed, T.RELICS_NEEDED]
-	if player.is_hidden_now:
-		words += "  ·  HIDDEN"
 	if player.critical:
 		words += "  ·  WOUNDED %d" % int(ceil(player.critical_time))
 	if game_state != "play":
@@ -424,7 +440,6 @@ func _debug_text() -> String:
 	lines.append("fps %d   seed %d" % [Engine.get_frames_per_second(), _seed])
 	lines.append("demon %s  %.1f m" % [demon.state_name(), demon.distance_to_player()])
 	lines.append("sees you: %s" % str(demon.sees_player))
-	lines.append("banish %.0f / %.0f s" % [demon.banish_time, T.BANISH_TIME])
 	lines.append("chalk %.1f m  (+%.1f on floor)" % [chalk.chalk, chalk.locked()])
 	lines.append("circles %d   line %.1f m" % [chalk.loops.size() - 1, chalk.stroke_len])
 	lines.append("fear %.2f   hidden %s" % [fear, str(player.is_hidden_now)])

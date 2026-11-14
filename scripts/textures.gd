@@ -1,14 +1,14 @@
 extends RefCounted
-# TEXTURES MADE IN CODE - the project needs no image files.
+# TEXTURES MADE IN CODE - wood, oak, cloth, light beams, the rose window.
+# (Stone walls and floors are drawn in their shaders: psx_wall_paint, psx_floor.)
 # Inspiration: PS1 games used tiny textures (32x32 or 64x64 pixels) with no
 # smoothing. Each function paints one small picture, pixel by pixel, from a
 # short palette (the same flat-palette idea as the pixel-splat models).
 # The colours look light here because the dim lighting darkens them in the game.
 
-const STONE = ["2c2640", "433a5c", "5a4f78", "75699a"]
-const TILE = ["1f1a2e", "2e2742", "3d3557", "4f4670"]
 const WOOD = ["2a1a14", "45291d", "633c28", "80512f"]
 const CLOTH = ["3a0a14", "661424", "8f1d32", "b52a40"]
+const OAK = ["24160f", "34211a", "442b20", "553626", "66422d", "7a5034"]
 
 
 static func _ramp(hex_list: Array) -> Array:
@@ -20,47 +20,6 @@ static func _ramp(hex_list: Array) -> Array:
 
 static func _finish(img: Image) -> ImageTexture:
 	return ImageTexture.create_from_image(img)
-
-
-# Brick wall: rows of bricks, every second row shifted by half a brick.
-static func bricks(seed_value: int) -> ImageTexture:
-	var rng = RandomNumberGenerator.new()
-	rng.seed = seed_value
-	var ramp = _ramp(STONE)
-	var shade = []
-	for i in range(16):
-		shade.append(rng.randi_range(1, 3))
-	var img = Image.create(32, 32, false, Image.FORMAT_RGB8)
-	for y in range(32):
-		var row = int(y / 8)
-		var off = 8 if row % 2 == 1 else 0
-		for x in range(32):
-			var bx = int(((x + off) % 32) / 16)
-			var idx = shade[row * 2 + bx]
-			if y % 8 == 0 or (x + off) % 16 == 0:
-				idx = 0
-			elif rng.randf() < 0.14:
-				idx = clampi(idx + rng.randi_range(-1, 1), 1, 3)
-			img.set_pixel(x, y, ramp[idx])
-	return _finish(img)
-
-
-# Floor: four big stone tiles with dark seams and a few chips.
-static func tiles(seed_value: int) -> ImageTexture:
-	var rng = RandomNumberGenerator.new()
-	rng.seed = seed_value
-	var ramp = _ramp(TILE)
-	var shade = [rng.randi_range(1, 3), rng.randi_range(1, 3), rng.randi_range(1, 3), rng.randi_range(1, 3)]
-	var img = Image.create(32, 32, false, Image.FORMAT_RGB8)
-	for y in range(32):
-		for x in range(32):
-			var idx = shade[int(y / 16) * 2 + int(x / 16)]
-			if x % 16 == 0 or y % 16 == 0:
-				idx = 0
-			elif rng.randf() < 0.10:
-				idx = clampi(idx + rng.randi_range(-1, 1), 1, 3)
-			img.set_pixel(x, y, ramp[idx])
-	return _finish(img)
 
 
 # Wood: planks with a little grain.
@@ -80,6 +39,56 @@ static func wood(seed_value: int) -> ImageTexture:
 			elif rng.randf() < 0.18:
 				idx = clampi(idx + rng.randi_range(-1, 1), 1, 3)
 			img.set_pixel(x, y, ramp[idx])
+	return _finish(img)
+
+
+# Oak for models with UVs (the pews): the grain runs along U (x). Growth
+# rings are dark wavy lines, pores are short dark dashes along the grain,
+# and the light flecks are oak's medullary rays. Every wave has a whole
+# number of periods across the picture, so it tiles without seams.
+static func oak(seed_value: int) -> ImageTexture:
+	var rng = RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var ramp = _ramp(OAK)
+	var size = 64
+	var img = Image.create(size, size, false, Image.FORMAT_RGB8)
+	var ph1 = rng.randf() * TAU
+	var ph2 = rng.randf() * TAU
+	var rings = 5
+	var row_tone = []
+	for y in range(size):
+		row_tone.append(rng.randf_range(-0.35, 0.35))
+	var idx_map = []
+	for y in range(size):
+		for x in range(size):
+			var u = float(x) / size
+			var wob = sin(TAU * u + ph1 + y * 0.05) * 3.0 + sin(TAU * 2.0 * u + ph2) * 1.4
+			var t = fposmod((y + wob) * rings / float(size), 1.0)
+			var v = 3.0 + row_tone[y]
+			if t < 0.16:
+				v -= 1.1                      # late wood: the dark ring line
+			elif t < 0.3:
+				v -= 0.6
+			elif t > 0.75:
+				v += 0.5
+			v += rng.randf_range(-0.3, 0.3)
+			idx_map.append(v)
+	# pores: short dark dashes along the grain
+	for k in range(40):
+		var px = rng.randi_range(0, size - 1)
+		var py = rng.randi_range(0, size - 1)
+		for d in range(rng.randi_range(2, 4)):
+			idx_map[py * size + (px + d) % size] -= 0.6
+	# rays: a few light flecks
+	for k in range(8):
+		var px = rng.randi_range(0, size - 1)
+		var py = rng.randi_range(0, size - 1)
+		for d in range(rng.randi_range(3, 6)):
+			idx_map[py * size + (px + d) % size] += 1.4
+	for y in range(size):
+		for x in range(size):
+			var i = clampi(int(round(idx_map[y * size + x])), 0, ramp.size() - 1)
+			img.set_pixel(x, y, ramp[i])
 	return _finish(img)
 
 
