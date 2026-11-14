@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/font.glb" id="r1"]
+
+[node name="center_font" type="Node3D"]
+
+[node name="font_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)

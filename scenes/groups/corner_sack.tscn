@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/saltsack.glb" id="r1"]
+[ext_resource type="PackedScene" path="res://assets/props/bottle_round.glb" id="r2"]
+
+[node name="corner_sack" type="Node3D"]
+
+[node name="saltsack_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)
+
+[node name="bottle_round_1" parent="." instance=ExtResource("r2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0.35, 0, -0.25)

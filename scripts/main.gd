@@ -15,6 +15,7 @@ extends Node3D
 
 const T = preload("res://scripts/tuning.gd")
 const Level = preload("res://scripts/level.gd")
+const RoomLevel = preload("res://scripts/room_level.gd")
 const Chalk = preload("res://scripts/chalk.gd")
 const Player = preload("res://scripts/player.gd")
 const Demon = preload("res://scripts/demon.gd")
@@ -71,7 +72,7 @@ func _ready() -> void:
 	add_child(sfx)
 	_make_environment()
 
-	level = Level.new()
+	level = RoomLevel.new() if T.ROOM_LEVEL else Level.new()
 	add_child(level)
 	level.build(_seed)
 
@@ -87,6 +88,10 @@ func _ready() -> void:
 	add_child(player)
 	player.setup(self)
 	player.position = level.player_start
+	if "player_yaw" in level:
+		player.yaw = level.player_yaw
+		player.yaw_target = level.player_yaw
+		player.rotation.y = level.player_yaw
 
 	demon = Demon.new()
 	add_child(demon)
@@ -117,6 +122,16 @@ func _make_environment() -> void:
 	env.fog_light_color = Color(0.02, 0.025, 0.05)
 	env.fog_density = 0.055
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	if T.ROOM_LEVEL:
+		# the room levels' look: a dark purplish night (violet moon, rosy candles, purple haze)
+		env.background_color = Color(0.018, 0.006, 0.03)
+		env.ambient_light_color = Color(0.4, 0.26, 0.6)
+		env.ambient_light_energy = 0.6
+		env.fog_light_color = Color(0.035, 0.014, 0.06)
+		env.fog_density = 0.06
+		env.glow_enabled = true
+		env.glow_intensity = 0.6
+		env.glow_bloom = 0.03
 	_env = env
 	var world = WorldEnvironment.new()
 	world.environment = env
@@ -354,7 +369,7 @@ func _process(dt: float) -> void:
 	if not _door_done and _time > 2.5:
 		_door_done = true
 		sfx.play_at("door_slam", level.door_pos, 4.0)
-		demon.hear(Vector2(0.0, 1.0), 200.0)
+		demon.hear(Vector2(level.door_pos.x, level.door_pos.z) if T.ROOM_LEVEL else Vector2(0.0, 1.0), 200.0)
 
 	if _clatter_wait > 0.0:
 		_clatter_wait -= dt

@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/props/chalktable.glb" id="r1"]
+[ext_resource type="PackedScene" path="res://assets/props/chair.glb" id="r2"]
+[ext_resource type="PackedScene" path="res://assets/props/candles.glb" id="r3"]
+
+[node name="wall_study" type="Node3D"]
+
+[node name="chalktable_0" parent="." instance=ExtResource("r1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0.3)
+
+[node name="chair_1" parent="." instance=ExtResource("r2")]
+transform = Transform3D(-0.99027, 0, 0.13917, 0, 1, 0, -0.13917, 0, -0.99027, 0.12, 0, 0.85)
+
+[node name="candles_2" parent="." instance=ExtResource("r3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, -0.27, 0.74, 0.33)
+
+[node name="ItemSpot_0" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0.22, 0.7575, 0.3)
