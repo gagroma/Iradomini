@@ -310,6 +310,9 @@ func on_demon_returned() -> void:
 
 func on_demon_scream() -> void:
 	fear = maxf(fear, 0.8)
+	# the scream shakes the world: hard up close, a tremor from across the church
+	var near = clampf(1.0 - demon.distance_to_player() / 16.0, 0.0, 1.0)
+	player.shake(0.15 + 0.75 * near)
 
 
 func _on_loop_closed(_loop) -> void:

@@ -317,6 +317,26 @@ func segment_blocked(a: Vector2, b: Vector2) -> bool:
 	return false
 
 
+# The nearest point of any closed line to p, if one is closer than `within`;
+# otherwise null. The demon uses it to keep its whole body off the lines.
+func closest_line_point(p: Vector2, within: float) -> Variant:
+	var best = null
+	var best_d = within
+	for loop in loops:
+		if not loop["rect"].grow(within).has_point(p):
+			continue
+		var pts = loop["pts"]
+		var count = pts.size()
+		var segs = count if not loop["permanent"] else 1
+		for i in range(segs):
+			var q = Geometry2D.get_closest_point_to_segment(p, pts[i], pts[(i + 1) % count])
+			var d = q.distance_to(p)
+			if d < best_d:
+				best_d = d
+				best = q
+	return best
+
+
 # The player-made circle that p stands inside, or null.
 func loop_containing(p: Vector2) -> Variant:
 	for loop in loops:

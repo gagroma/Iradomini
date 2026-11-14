@@ -37,6 +37,8 @@ var right_hand: Node3D      # holds the chalk; reaches for the floor while you d
 var rubbing := false        # right mouse held on the floor: rubbing a circle out
 var _reach := 0.0           # 0 = hand at rest, 1 = arm stretched out to the floor
 var _lag := Vector2.ZERO    # the hands trail a little behind the turning head
+var _trauma := 0.0          # 0..1 camera shake (the demon's scream, its blows, its steps)
+var _shake_noise := FastNoiseLite.new()
 
 var yaw := 0.0              # where the body really looks (left/right)
 var pitch := 0.0            # where the head really looks (up/down)
@@ -219,7 +221,14 @@ func _update_camera(dt: float, moved: float) -> void:
 	var shake = fear * fear * 0.006
 	head.position = Vector3(bob_x + randf_range(-shake, shake), _head_y + bob_y + breath + randf_range(-shake, shake), 0.0)
 	_kick = move_toward(_kick, 0.0, dt * 2.2)
-	cam.rotation.z = sin(_time * 0.7) * 0.004 + _kick * 0.35 * sin(_time * 38.0)
+	# shake: strong for a moment, then dying away (the square makes small shakes subtle)
+	_trauma = maxf(0.0, _trauma - dt * 0.9)
+	var tr = _trauma * _trauma
+	var n = _time * 30.0
+	cam.rotation.x = tr * 0.07 * _shake_noise.get_noise_2d(n, 0.0)
+	cam.rotation.y = tr * 0.07 * _shake_noise.get_noise_2d(n, 50.0)
+	cam.rotation.z = sin(_time * 0.7) * 0.004 + _kick * 0.35 * sin(_time * 38.0) + tr * 0.1 * _shake_noise.get_noise_2d(n, 100.0)
+	head.position += Vector3(_shake_noise.get_noise_2d(n, 150.0), _shake_noise.get_noise_2d(n, 200.0), 0.0) * tr * 0.04
 	# GDD: FOV 62, narrowing to 50 next to the demon
 	var fov_target = lerpf(T.FOV_NORMAL, T.FOV_NEAR_DEMON, fear)
 	cam.fov = lerpf(cam.fov, fov_target, 1.0 - exp(-4.0 * dt))
@@ -306,10 +315,16 @@ func look_at_point(point: Vector3) -> void:
 	_look_towards(point)
 
 
+# Shake the camera: amount 0..1 adds up (a scream next to you is about 0.9).
+func shake(amount: float) -> void:
+	_trauma = clampf(_trauma + amount, 0.0, 1.0)
+
+
 # Called by the demon when its claws land.
 func take_hit(from: Vector3) -> void:
 	if not alive:
 		return
+	shake(0.7)
 	if critical:
 		alive = false
 		death_look = from + Vector3(0.0, 2.05, 0.0)
