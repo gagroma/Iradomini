@@ -58,6 +58,7 @@ var door_pos := Vector3(0.0, 1.5, 5.6)
 var _mats := {}
 var _beam_mat: StandardMaterial3D
 var _pew_mats := []
+var pew_backs := []
 var _chapels := []
 var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
@@ -456,6 +457,7 @@ func _build_nave(chapels: Array) -> void:
 				var zr = zc - 1.3 + row * 0.87
 				_pew(Vector3(x, 0.0, zr))
 			_collider(Vector3(x, 0.47, zc), Vector3(2.4, 0.94, 3.4))
+			pew_backs.append({"x": x, "half": 1.1, "rail_z": zc + 1.55, "back_z": zc + 1.7})
 			_obstacle(x - 1.2, zc - 1.7, x + 1.2, zc + 1.7)
 		if b % 2 == 1:
 			_moon_shaft(Vector2(0.0, zc), 1.6, 1.6)

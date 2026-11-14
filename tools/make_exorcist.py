@@ -288,7 +288,7 @@ def build_head():
         p = centre + p
         p.y = max(p.y, 0.005)
         v.co = GODOT_TO_BLENDER @ p
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces)
     mesh = bpy.data.meshes.new("Head")
     bm.to_mesh(mesh)
     bm.free()
