@@ -318,9 +318,11 @@ func _take_relic(r: Dictionary) -> void:
 # GDD "Final": put all four on the altar.
 func _place_relics() -> void:
 	var slot = placed
+	var altar_yaw: float = level.altar_yaw if "altar_yaw" in level else 0.0
 	for r in relics:
 		if r["taken"] and not r["node"].visible:
-			r["node"].position = level.altar_top + Vector3(-0.75 + 0.5 * slot, 0.0, 0.1)
+			var offset := Vector3(-0.75 + 0.5 * slot, 0.0, 0.1).rotated(Vector3.UP, altar_yaw)
+			r["node"].position = level.altar_top + offset
 			r["node"].visible = true
 			slot += 1
 	placed += carried

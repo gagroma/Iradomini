@@ -76,9 +76,10 @@ func start(main_node) -> void:
 		if absf(ang) < 1.2:
 			want = to_demon.rotated(Vector3.UP, -1.2 if ang >= 0.0 else 1.2)
 	var pew = null
-	for b in main.level.pew_backs:
-		if absf(_origin.x - b["x"]) < b["half"] and _origin.z > b["back_z"] - 0.05 and _origin.z < b["back_z"] + 0.75:
-			pew = b
+	if "pew_backs" in main.level:
+		for b in main.level.pew_backs:
+			if absf(_origin.x - b["x"]) < b["half"] and _origin.z > b["back_z"] - 0.05 and _origin.z < b["back_z"] + 0.75:
+				pew = b
 	if pew != null:
 		_pew = true
 		_impact = PEW_IMPACT

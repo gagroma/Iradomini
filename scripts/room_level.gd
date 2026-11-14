@@ -39,6 +39,7 @@ var player_yaw := 0.0
 var demon_start := Vector2.ZERO
 var altar_pos := Vector2.ZERO
 var altar_top := Vector3.ZERO
+var altar_yaw := 0.0
 var altar_circle := PackedVector2Array()
 var narthex_poly := PackedVector2Array()
 var crossing_rect := Rect2()
@@ -565,6 +566,7 @@ func _end_room() -> void:
 	var ap := altar.global_position
 	altar_pos = Vector2(ap.x, ap.z)
 	altar_top = Vector3(ap.x, 1.03, ap.z)
+	altar_yaw = altar.global_rotation.y
 	var cross := room.get_node_or_null("Fixed/cross_1")
 	window_pos = cross.global_position + Vector3(0.0, -0.4, 0.0) if cross else Vector3(ap.x, 3.0, ap.z)
 	# the altar blocks the way; you can hide behind it
@@ -607,25 +609,33 @@ func _end_room() -> void:
 
 func _place_relics() -> void:
 	var spots := []               # [room index, Vector3]
-	var book := Vector3.ZERO
-	var has_book := false
+	var fallback_spots := []
 	for i in rooms.size():
 		var r = rooms[i]
 		if r["kind"] in ["start", "end"]:
 			continue
 		var node: Node3D = r["node"]
-		for s in node.find_children("ItemSpot*", "", true, false) + node.find_children("item_*", "", true, false):
-			if s.is_visible_in_tree():
-				spots.append([i, s.global_position])
+		for marker in node.find_children("item_*", "Marker3D", true, false):
+			var p := Vector2(marker.global_position.x, marker.global_position.z)
+			if _relic_floor_is_clear(p):
+				spots.append([i, Vector3(p.x, 0.0, p.y)])
+		var interior: Rect2 = r["rect"].grow(-0.55)
+		var first: Vector2i = nav.cell_of(interior.position)
+		var last: Vector2i = nav.cell_of(interior.end)
+		for x in range(first.x, last.x + 1):
+			for z in range(first.y, last.y + 1):
+				var p: Vector2 = nav.center_of(Vector2i(x, z))
+				if interior.has_point(p) and _relic_floor_is_clear(p):
+					fallback_spots.append([i, Vector3(p.x, 0.0, p.y)])
 	_shuffle(spots)
-	var kinds := ["chalice", "cross", "censer"]
-	if not has_book:
-		kinds.append("book")
+	_shuffle(fallback_spots)
+	spots.append_array(fallback_spots)
+	var kinds := ["chalice", "cross", "censer", "book"]
 	var used_rooms := {}
 	for pass_n in 2:
 		for s in spots:
 			if relic_spots.size() >= kinds.size():
-				break
+				return
 			if pass_n == 0 and used_rooms.has(s[0]):
 				continue
 			var taken := false
@@ -636,12 +646,16 @@ func _place_relics() -> void:
 				continue
 			used_rooms[s[0]] = true
 			relic_spots.append({"pos": s[1], "kind": kinds[relic_spots.size()], "chapel": rooms[s[0]]["kind"] == "normal"})
-	while relic_spots.size() < kinds.size():      # never short: fall back to a room's middle
-		var r = rooms[1 + relic_spots.size() % (rooms.size() - 1)]
-		var p := _free_near(r["pos"])
-		relic_spots.append({"pos": Vector3(p.x, 0.0, p.y), "kind": kinds[relic_spots.size()], "chapel": false})
-	if has_book:
-		relic_spots.append({"pos": book, "kind": "book", "chapel": false})
+
+
+func _relic_floor_is_clear(p: Vector2) -> bool:
+	if not nav.is_free(p):
+		return false
+	# Keep the floor pickup and the space immediately around it clear of props.
+	for i in 8:
+		if not nav.is_free(p + Vector2.from_angle(i * TAU / 8.0) * 0.4):
+			return false
+	return true
 
 
 # ----------------------------------------------------------------- patrol
