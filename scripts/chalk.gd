@@ -25,7 +25,6 @@ var chalk: float = T.CHALK_MAX           # metres of chalk left in your hand
 var loops := []                     # every closed circle (each one is a Dictionary)
 var stroke := PackedVector2Array()  # the line being drawn right now
 var stroke_len := 0.0
-var regenerating := false           # true after a banishing, until the chalk is back
 var jitter := 0.0                   # 0..1 - the line shakes when the demon is near
 
 var _next_id := 1
@@ -173,7 +172,7 @@ func _make_loop(poly: PackedVector2Array, permanent: bool) -> Dictionary:
 		"mat": mat,
 		"permanent": permanent,
 		"flash": 1.0,       # bright for a moment when the circle closes
-		"trap": 0.0,        # 0..1 progress of a banishing inside this circle
+		"trap": 0.0,        # 0..1 gold glow after it banished the demon
 		"seed": line_seed,
 	}
 	_next_id += 1
@@ -400,12 +399,11 @@ func erase_cancel() -> void:
 
 # --------------------------------------------------------------- BANISHING
 
-# GDD: after a successful banishing the supply is emptied and comes back in 1 minute.
+# The circle caught the demon: it blazes gold for a moment, then stays on the
+# floor as an ordinary circle. Its chalk comes back only when you rub it out.
 func on_banish(loop: Dictionary) -> void:
-	_burn(loop["pts"], loop["seed"])
-	_remove_loop(loop)
-	chalk = 0.0
-	regenerating = true
+	loop["trap"] = 1.0
+	loop["flash"] = 1.0
 
 
 # ------------------------------------------------------- THE ALTAR'S CIRCLE
@@ -435,12 +433,13 @@ func _process(dt: float) -> void:
 	if stroke.size() >= 2:
 		_fill_ribbon(_stroke_mesh, stroke, false, T.LINE_WIDTH, jitter * 0.025, _stroke_seed)
 
-	# closed circles: flash when new, turn gold while they hold the demon
+	# closed circles: flash when new, blaze gold when they banish the demon
 	for loop in loops:
 		loop["flash"] = maxf(0.0, loop["flash"] - dt * 1.5)
 		var col = Color(0.95, 0.9, 0.74)
 		if loop["permanent"]:
 			col = Color(0.9, 0.92, 1.0)
+		loop["trap"] = maxf(0.0, loop["trap"] - dt * 0.4)     # the gold of a banishing fades
 		var trap = loop["trap"]
 		if trap > 0.0:
 			var pulse = 0.5 + 0.5 * sin(_time * (4.0 + trap * 10.0))
@@ -465,12 +464,11 @@ func _process(dt: float) -> void:
 			burn["node"].queue_free()
 			_burns.remove_at(i)
 
-	# chalk growing back after a banishing
-	if regenerating:
-		chalk += T.CHALK_MAX / T.CHALK_REGEN_TIME * dt
-		if chalk + locked() >= T.CHALK_MAX:
-			chalk = maxf(0.0, T.CHALK_MAX - locked())
-			regenerating = false
+	# chalk slowly comes back by itself, but only up to what is not lying on
+	# the floor in your circles (rub them out to get that back at once)
+	var room = T.CHALK_MAX - locked() - stroke_len - chalk
+	if room > 0.0:
+		chalk += minf(room, T.CHALK_MAX / T.CHALK_REGEN_TIME * dt)
 
 	# ending animation of the altar circle
 	if _decor_close >= 0.0 and _decor_close < 1.0:

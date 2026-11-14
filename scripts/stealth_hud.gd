@@ -17,10 +17,13 @@ const PALE := Color(0.9, 0.86, 0.74)
 const AMBER := Color(1.0, 0.68, 0.18)
 const RED := Color(1.0, 0.16, 0.1)
 const GREEN := Color(0.66, 0.9, 0.7)
+const T_RECOVER := 0.4      # tuning.gd STAMINA_RECOVER: where running comes back
 
 var awareness := 0          # 0 unaware, 1 heard something, 2 sees you
 var crouching := false
 var is_hidden := false
+var stamina := 1.0          # 0..1
+var winded := false
 
 var _open := 0.12           # how open the eye is drawn (follows awareness)
 var _alpha := 0.0
@@ -65,7 +68,7 @@ func _process(dt: float) -> void:
 	for r in _rings:
 		r["t"] += dt
 	_rings = _rings.filter(func(r): return r["t"] < 0.9)
-	var show = crouching or awareness > 0 or not _rings.is_empty() or _flash > 0.0
+	var show = crouching or awareness > 0 or not _rings.is_empty() or _flash > 0.0 or stamina < 0.999
 	_alpha = move_toward(_alpha, 1.0 if show else 0.0, dt * (4.0 if show else 1.2))
 	modulate.a = _alpha
 
@@ -78,6 +81,11 @@ func _process(dt: float) -> void:
 	else:
 		_label.text = ""
 	queue_redraw()
+
+
+func set_stamina(amount: float, is_winded: bool) -> void:
+	stamina = clampf(amount, 0.0, 1.0)
+	winded = is_winded
 
 
 func _eye_colour() -> Color:
@@ -97,6 +105,15 @@ func _draw() -> void:
 			var rad = 15.0 + i * 4.0 + r["t"] * 6.0
 			draw_arc(CENTRE, rad, deg_to_rad(150), deg_to_rad(210), 6, col, 1.0, false)
 			draw_arc(CENTRE, rad, deg_to_rad(-30), deg_to_rad(30), 6, col, 1.0, false)
+
+	# stamina: a thin bar under the eye, red while you are out of breath
+	if stamina < 0.999:
+		var bar = Rect2(CENTRE + Vector2(-20, 9), Vector2(40, 2))
+		draw_rect(bar, Color(0, 0, 0, 0.6))
+		var c = RED if winded else PALE
+		draw_rect(Rect2(bar.position, Vector2(40.0 * stamina, 2)), c)
+		if winded:
+			draw_rect(Rect2(bar.position + Vector2(40.0 * T_RECOVER, -1), Vector2(1, 4)), PALE * Color(1, 1, 1, 0.6))
 
 	# the eye: two lids, and an iris when open
 	var w = 11.0

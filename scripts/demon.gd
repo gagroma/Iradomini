@@ -15,8 +15,8 @@ extends Node3D
 const T = preload("res://scripts/tuning.gd")
 const Models = preload("res://scripts/models.gd")
 
-enum S { PATROL, INVESTIGATE, CHASE, BLOCKED, RECOVER, TRAPPED, GONE }
-const STATE_NAMES = ["PATROL", "INVESTIGATE", "CHASE", "BLOCKED", "RECOVER", "TRAPPED", "GONE"]
+enum S { PATROL, INVESTIGATE, CHASE, BLOCKED, RECOVER, GONE }
+const STATE_NAMES = ["PATROL", "INVESTIGATE", "CHASE", "BLOCKED", "RECOVER", "GONE"]
 # Chalk lines are kept outside its whole body: every frame the animation
 # measures where its claws, mouth, horns, elbows and feet really are (they
 # move a lot - the arms are nearly two metres long), and it stands back from
@@ -40,7 +40,6 @@ var state: int = S.PATROL
 var pos2 := Vector2.ZERO            # where it stands on the floor (x, z)
 var facing := Vector2(0.0, 1.0)     # which way it looks (x, z)
 var sees_player := false
-var banish_time := 0.0              # seconds spent trapped in a circle
 
 var _path := []                     # points still to walk through
 var _patrol_i := 0
@@ -54,8 +53,6 @@ var _attack_cd := 0.0
 var _windup := 0.0
 var _recover := 0.0
 var _gone_left := 0.0
-var _trap_id := -1
-var _trap_loop = null
 var _last_known := Vector2.ZERO
 var _investigate := Vector2.ZERO
 var _notice_cd := 0.0
@@ -146,7 +143,7 @@ func distance_to_player() -> float:
 # Called for every noise: a footstep, the door, a falling candlestick.
 # Returns true if it heard it.
 func hear(at: Vector2, radius: float) -> bool:
-	if state == S.GONE or state == S.TRAPPED or state == S.RECOVER or state == S.BLOCKED:
+	if state == S.GONE or state == S.RECOVER or state == S.BLOCKED:
 		return false
 	if pos2.distance_to(at) > radius:
 		return false
@@ -347,8 +344,6 @@ func _physics_process(dt: float) -> void:
 		_do_blocked(dt, pp, reachable)
 	elif state == S.RECOVER:
 		_do_recover(dt, pp)
-	elif state == S.TRAPPED:
-		_do_trapped(dt, pp)
 
 	_keep_off_chalk()
 	_apply_transform()
@@ -556,51 +551,18 @@ func _do_blocked(dt: float, pp: Vector2, reachable: bool) -> void:
 # ----------------------------------------------------------------- BANISHING
 
 # Is it standing inside one of your circles while you are outside it?
+# Then the circle has caught it: it is banished at once.
 func _update_trap(dt: float, pp: Vector2) -> void:
 	var loop = main.chalk.loop_containing(pos2)
-	if loop != null and Geometry2D.is_point_in_polygon(pp, loop["pts"]):
-		loop = null     # you are in the same circle: that is not a trap, that is dinner
-	if loop == null:
-		if _trap_loop != null:
-			_trap_loop["trap"] = 0.0
-		_trap_loop = null
-		_trap_id = -1
-		banish_time = 0.0
-		if state == S.TRAPPED:
-			state = S.PATROL
-			_path = []
-			_patrol_i = _nearest_patrol_index()
-		return
-	if loop["id"] != _trap_id:
-		if _trap_loop != null:
-			_trap_loop["trap"] = 0.0
-		_trap_loop = loop
-		_trap_id = loop["id"]
-		banish_time = 0.0
-		_scream()
-	state = S.TRAPPED
-	banish_time += dt
-	loop["trap"] = clampf(banish_time / T.BANISH_TIME, 0.0, 1.0)
-	if banish_time >= T.BANISH_TIME:
-		_banish()
+	if loop == null or Geometry2D.is_point_in_polygon(pp, loop["pts"]):
+		return     # (you are in the same circle: that is not a trap, that is dinner)
+	_banish(loop)
 
 
-func _do_trapped(dt: float, pp: Vector2) -> void:
-	var to_p = pp - pos2
-	var dist = to_p.length()
-	_turn_towards(to_p, dt, 8.0)
-	if dist > 0.9:
-		_step_direct(to_p / dist, 1.4, dt, 0.35)
-	if _scream_cd <= 0.0:
-		_scream()
-
-
-# GDD "Izgnanie": the circle held until the timer ran out.
-func _banish() -> void:
-	var loop = _trap_loop
-	_trap_loop = null
-	_trap_id = -1
-	banish_time = 0.0
+# The circle closed round it: it comes apart and is gone for a while. The
+# circle stays on the floor; rub it out yourself to get its chalk back.
+func _banish(loop: Dictionary) -> void:
+	_scream()
 	state = S.GONE
 	_gone_left = T.BANISH_COOLDOWN
 	_dissolve_target = 1.0
@@ -707,7 +669,7 @@ func _animate(dt: float) -> void:
 	var aware = awareness()
 
 	# --- what it is doing ---
-	var pressing = state == S.BLOCKED or state == S.TRAPPED
+	var pressing = state == S.BLOCKED
 	_press = move_toward(_press, 1.0 if pressing else 0.0, dt * 3.0)
 	var roar = 1.0 if state == S.RECOVER else 0.0
 	if _atk_t >= 0.0:

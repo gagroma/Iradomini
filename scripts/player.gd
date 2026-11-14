@@ -37,6 +37,7 @@ var right_hand: Node3D      # holds the chalk; reaches for the floor while you d
 var rubbing := false        # right mouse held on the floor: rubbing a circle out
 var _reach := 0.0           # 0 = hand at rest, 1 = arm stretched out to the floor
 var _lag := Vector2.ZERO    # the hands trail a little behind the turning head
+var _breath_phase := 0.0
 var _trauma := 0.0          # 0..1 camera shake (the demon's scream, its blows, its steps)
 var _shake_noise := FastNoiseLite.new()
 
@@ -49,6 +50,8 @@ var alive := true
 var frozen := false         # true during the ending
 var crouching := false
 var running := false
+var stamina := 5.0          # seconds of running left (tuning.gd STAMINA_MAX)
+var winded := false         # ran out: no running until you get your breath back
 var is_hidden_now := false  # crouched next to cover: the demon cannot see you
 var critical := false       # wounded: the next hit kills (GDD "Zdorovie")
 var critical_time := 0.0
@@ -165,7 +168,16 @@ func _physics_process(dt: float) -> void:
 		if Input.is_physical_key_pressed(KEY_D):
 			input.x += 1.0
 	crouching = can_act and (Input.is_physical_key_pressed(KEY_CTRL) or Input.is_physical_key_pressed(KEY_C))
-	running = can_act and not crouching and Input.is_physical_key_pressed(KEY_SHIFT) and input.length() > 0.0
+	running = can_act and not crouching and not winded and Input.is_physical_key_pressed(KEY_SHIFT) and input.length() > 0.0
+	# stamina: running uses it up; out of it, you must get your breath back first
+	if running:
+		stamina = maxf(0.0, stamina - dt)
+		if stamina <= 0.0:
+			winded = true
+	else:
+		stamina = minf(T.STAMINA_MAX, stamina + dt * T.STAMINA_REGEN)
+		if winded and stamina >= T.STAMINA_MAX * T.STAMINA_RECOVER:
+			winded = false
 	var speed = T.WALK_SPEED
 	if crouching:
 		speed = T.CROUCH_SPEED
@@ -217,7 +229,10 @@ func _update_camera(dt: float, moved: float) -> void:
 	var moving = 1.0 if moved > 0.0005 else 0.0
 	var bob_y = sin(_bob) * 0.035 * moving
 	var bob_x = cos(_bob * 0.5) * 0.02 * moving
-	var breath = sin(_time * 1.4) * 0.008            # breathing while standing still
+	# breathing: heavier and faster the more out of breath you are
+	var puff = 1.0 - stamina / T.STAMINA_MAX
+	_breath_phase += dt * (1.4 + 2.6 * puff)
+	var breath = sin(_breath_phase) * (0.008 + 0.022 * puff)
 	var shake = fear * fear * 0.006
 	head.position = Vector3(bob_x + randf_range(-shake, shake), _head_y + bob_y + breath + randf_range(-shake, shake), 0.0)
 	_kick = move_toward(_kick, 0.0, dt * 2.2)

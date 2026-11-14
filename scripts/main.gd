@@ -296,11 +296,11 @@ func on_player_died() -> void:
 
 
 func on_banished(loop) -> void:
-	if loop != null:
-		chalk.on_banish(loop)
+	chalk.on_banish(loop)
 	_flash = 0.7
 	sfx.play("banish", 0.0)
-	hud.show_note("демон изгнан  ·  мел вернётся за минуту", 6.0)
+	player.shake(0.4)
+	hud.show_note("демон изгнан  ·  сотри круг (ПКМ), чтобы вернуть мел", 6.0)
 
 
 func on_demon_returned() -> void:
@@ -419,6 +419,7 @@ func _process(dt: float) -> void:
 	post.set_shader_parameter("hide", _hide)
 	post.set_shader_parameter("alert", _alert)
 	hud.stealth.set_state(aware, player.crouching and playing, player.is_hidden_now and playing)
+	hud.stealth.set_stamina(player.stamina / T.STAMINA_MAX, player.winded)
 
 	# words on screen
 	hud.set_prompt(_prompt_text())
@@ -439,7 +440,6 @@ func _debug_text() -> String:
 	lines.append("fps %d   seed %d" % [Engine.get_frames_per_second(), _seed])
 	lines.append("demon %s  %.1f m" % [demon.state_name(), demon.distance_to_player()])
 	lines.append("sees you: %s" % str(demon.sees_player))
-	lines.append("banish %.0f / %.0f s" % [demon.banish_time, T.BANISH_TIME])
 	lines.append("chalk %.1f m  (+%.1f on floor)" % [chalk.chalk, chalk.locked()])
 	lines.append("circles %d   line %.1f m" % [chalk.loops.size() - 1, chalk.stroke_len])
 	lines.append("fear %.2f   hidden %s" % [fear, str(player.is_hidden_now)])

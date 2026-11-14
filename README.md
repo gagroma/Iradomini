@@ -31,7 +31,8 @@ A first playable prototype of GDD v6 as a Godot 4.7 project: one cathedral level
 - **Chalk:** 10 m supply, 2.5 m reach, silent. A line closes when it returns to its start or crosses itself. An unclosed line burns away. Erasing returns all of a circle's chalk. The chalk stick in your hand shortens instead of a meter.
 - **The rule:** the demon never crosses a closed line. It is checked on every step it takes.
 - **Demon:** Patrol, Investigate (waits 3 s), Chase (within 4 m or in its view cone), Blocked (leans on the line and screams, then leaves). Its red eye light shows where it looks. Candles go out as it passes.
-- **Banishing:** hold it inside a closed circle for 50 s. Your chalk drops to zero and refills over one minute. The demon returns after a cooldown, far away and out of sight.
+- **Banishing:** close a circle round the demon (you outside it) and it comes apart at once. The circle stays on the floor, blazing gold for a moment; chalk in your hand slowly grows back by itself (empty to full in 90 s), but only up to what is not lying on the floor - rub circles out (right mouse) to get theirs back at once. The demon returns after a cooldown, far away and out of sight.
+- **Stamina:** 5 s of running from full breath, won back while you walk or stand; run out and you cannot run again until it is back to 40%. A thin bar under the eye at the top shows it (red while winded), and you breathe harder.
 - **Health:** first hit wounds you for 20 s, second hit kills and rebuilds the level with a new seed.
 - **Level:** narthex with a salt threshold, nave with pews, side aisles with columns, four chapels, pulpit with the prayer book, open crossing, altar with the unfinished circle and the body. The seed changes nave length, chapel positions, pulpit side.
 - **Feel:** head bob, breathing, turn inertia, FOV 62 to 50, vignette, grain and colour fringing by demon distance, candle flicker, heartbeat, low hum, reversed choir in the crossing.
