@@ -23,6 +23,7 @@ const STATE_NAMES = ["PATROL", "INVESTIGATE", "CHASE", "BLOCKED", "RECOVER", "GO
 # a line by as far as its body reaches towards it, plus a little.
 const MIN_CLEAR := 0.42
 const CLEAR_MARGIN := 0.08
+const THRESHOLD_CLEAR := 0.65
 # points on the body, each on its joint (model space, relative to the joint)
 const BODY_POINTS := {
 	"head": [Vector3(0, 0.05, 0.52), Vector3(0.34, 0.71, -0.26), Vector3(-0.34, 0.71, -0.26), Vector3(0, 0.55, 0.3)],
@@ -220,13 +221,14 @@ func _follow(dt: float, speed: float) -> int:
 		_wp_stuck = 0.0
 	else:
 		_wp_stuck += dt
-	if _wp_stuck > 0.5 and d < 1.2:
+	if _wp_stuck > 0.65:
 		_wp_best = 99999.0
 		_wp_stuck = 0.0
-		_path.remove_at(0)
-		return 1 if _path.is_empty() else 0
+		_path.clear()
+		return 2
 	if d <= step_len:
 		_wp_best = 99999.0
+		_wp_stuck = 0.0
 		if main.chalk.segment_blocked(pos2, target):
 			_path = []
 			return 2
@@ -249,18 +251,20 @@ func _follow(dt: float, speed: float) -> int:
 # line, so it can never be pushed across one.
 func _keep_off_chalk() -> void:
 	for i in range(3):
-		var q = main.chalk.closest_line_point(pos2, _reach + CLEAR_MARGIN)
-		if q == null:
+		var line: Dictionary = main.chalk.closest_line(pos2, _reach + CLEAR_MARGIN, THRESHOLD_CLEAR)
+		if line.is_empty():
 			return
-		var v: Vector2 = q - pos2
+		var v: Vector2 = line["point"] - pos2
 		var d = v.length()
 		if d < 0.001:
 			return
 		var to_line = v / d
 		# how far the body sticks out towards that line right now
-		var need = MIN_CLEAR
-		for b in _body:
-			need = maxf(need, b.dot(to_line) + CLEAR_MARGIN)
+		# The spawn threshold sits next to other passages. Keep the demon back without pushing it across them.
+		var need := THRESHOLD_CLEAR if line["permanent"] else MIN_CLEAR
+		if not line["permanent"]:
+			for b in _body:
+				need = maxf(need, b.dot(to_line) + CLEAR_MARGIN)
 		if d >= need:
 			return
 		var push = pos2 - to_line * (need - d)
@@ -292,6 +296,8 @@ func _step_direct(dir: Vector2, speed: float, dt: float, margin: float) -> bool:
 
 
 func _path_to(target: Vector2) -> Array:
+	_wp_best = INF
+	_wp_stuck = 0.0
 	return main.level.nav.find_path(pos2, target, main.chalk)
 
 
@@ -443,7 +449,7 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 	var dist = to_p.length()
 
 	# it sees you but a circle is between you, and it has walked into the line
-	if sees_player and not reachable and main.chalk.closest_line_point(pos2, _reach + 0.3) != null:
+	if sees_player and not reachable and not main.chalk.closest_line(pos2, _reach + 0.3).is_empty():
 		_start_blocked()
 		return
 

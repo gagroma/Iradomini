@@ -26,6 +26,8 @@ const FlameCluster = preload("res://scripts/flame_cluster.gd")
 
 const MAX_CANDLE_LIGHTS := 30      # GL Compatibility draws at most 64 lights; keep room for the rest
 const CIRCLE_RADIUS := 2.2         # the old exorcist's unfinished circle round the altar
+const DOOR_HALF_WIDTH := 0.75
+const DOOR_APPROACH := 1.85
 
 # --- the same public interface as level.gd ---
 var nav
@@ -73,7 +75,7 @@ func build(seed_value: int) -> void:
 	_body.name = "LevelCollision"
 	add_child(_body)
 	_instance_rooms()
-	_clear_doorways()
+	_clear_doorways_and_props()
 	_wall_boxes()
 	_carve_and_block()
 	_light_candles()
@@ -247,6 +249,14 @@ func _key(p: Vector3) -> String:
 
 func _instance_rooms() -> void:
 	var owner_of := {}            # wall/window/doorway position -> room index (first one wins)
+	var door_pilasters := {}
+	for r in rooms:
+		for d in r["doors"]:
+			if d["link"] >= 0 and d["own"]:
+				var p: Vector2 = d["pos"]
+				var side: Vector2 = d["dir"].orthogonal()
+				for edge in [p - side, p + side]:
+					door_pilasters[_key(Vector3(edge.x, 0.0, edge.y))] = true
 	for i in rooms.size():
 		var r = rooms[i]
 		var node: Node3D = load(Tpl.TEMPLATES[r["name"]]["scene"]).instantiate()
@@ -269,7 +279,12 @@ func _instance_rooms() -> void:
 			var nm := String(c.name)
 			if not (nm.begins_with("Wall_") or nm.begins_with("Window_") or nm.begins_with("Pilaster_")):
 				continue
-			var k := ("p" if nm.begins_with("Pilaster") else "w") + _key(xf * c.position)
+			var point := _key(xf * c.position)
+			var pilaster := nm.begins_with("Pilaster")
+			if pilaster and door_pilasters.has(point):
+				c.visible = false
+				continue
+			var k := ("p" if pilaster else "w") + point
 			if owner_of.has(k) and owner_of[k] != i:
 				c.visible = false
 				var moon := node.get_node_or_null("Lights/Moon_" + nm.get_slice("_", 1))
@@ -292,45 +307,67 @@ func _instance_rooms() -> void:
 				owner_of[k] = i
 		node.open_doors = open
 		node.empty_doors = empty
+		for d in r["doors"]:
+			if not open.has(d["key"]):
+				continue
+			var door: Node3D = node.get_node("DoorSlot_%s/Doorway/Door" % d["key"])
+			if d["entrance"]:
+				door.get_node("DoorFrame").hide()
+				var leaf: Node3D = door.get_node("DoorLeaf")
+				leaf.position.x = -DOOR_HALF_WIDTH
+				leaf.scale.x = 1.4
+			else:
+				# Linked rooms share a clear stone arch. Only the entrance has a door.
+				door.hide()
 		var slots = node.get_node_or_null("Slots")
 		if slots:
 			slots.seed_value = (rng.randi() & 0x7fffffff) | 1
 		for l in node.find_children("*", "Light3D", true, false):
 			l.shadow_enabled = false
-		# doorways between rooms stand open (leaf swung back against the wall); the entrance stays shut
-		for d in r["doors"]:
-			if d["link"] >= 0 and d["own"]:
-				var leaf := node.get_node_or_null("DoorSlot_%s/Doorway/Door/DoorLeaf" % d["key"])
-				if leaf:
-					leaf.rotation.y = deg_to_rad(-100.0)
 		add_child(node)              # the room fills its slots and builds its collision here
 		r["node"] = node
 
 
 # ------------------------------------------------------------- doorways stay clear
 
-# The spawner does not know which doorways will be used, so a prop can land in front of one.
-# Hide anything standing in a 1.6 m wide, 3 m deep zone across every open doorway (both rooms).
-func _clear_doorways() -> void:
-	var zones := []
+
+func _footprint(box: AABB) -> Rect2:
+	return Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
+
+
+func _door_strip(d: Dictionary, depth: float, half_width: float) -> Rect2:
+	var axis: Vector2 = d["dir"].abs()
+	var half := axis * depth + Vector2(axis.y, axis.x) * half_width
+	return Rect2(d["pos"] - half, half * 2.0)
+
+
+func _clear_doorways_and_props() -> void:
+	var zones: Array[Rect2] = []
 	for r in rooms:
 		for d in r["doors"]:
 			if (d["link"] >= 0 and d["own"]) or d["entrance"]:
-				var p: Vector2 = d["pos"]
-				if absf(d["dir"].x) > 0.5:
-					zones.append(Rect2(p.x - 1.5, p.y - 0.8, 3.0, 1.6))
-				else:
-					zones.append(Rect2(p.x - 0.8, p.y - 1.5, 1.6, 3.0))
+				zones.append(_door_strip(d, DOOR_APPROACH, DOOR_HALF_WIDTH + 0.12))
 	for r in rooms:
+		var occupied := []
+		var fixed: Node = r["node"].get_node_or_null("Fixed")
 		for prop in _props_of(r["node"]):
 			var box := _world_box(prop)
-			if box.size == Vector3.ZERO or box.position.y > 0.5:
+			if box.size == Vector3.ZERO:
 				continue
-			var foot := Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
-			for z in zones:
-				if z.intersects(foot):
-					prop.visible = false
-					break
+			if box.position.y < 2.3 and box.end.y > 0.06:
+				var foot := _footprint(box)
+				if zones.any(func(zone): return zone.intersects(foot)):
+					prop.hide()
+					continue
+			# Companions authored in one group may overlap. Require clearance between random groups.
+			var parent: Node = prop.get_parent()
+			var group: Node = prop if parent is Marker3D else parent
+			var inset := (box.size * 0.25).min(Vector3.ONE * 0.035)
+			var inner := AABB(box.position + inset, box.size - inset * 2.0)
+			if parent != fixed and occupied.any(func(other): return other[0] != group and other[1].intersects(inner)):
+				prop.hide()
+				continue
+			occupied.append([group, box])
 
 
 # ------------------------------------------------------------- collision
@@ -344,7 +381,7 @@ func _box(xf: Transform3D, centre: Vector3, size: Vector3) -> void:
 	_body.add_child(cs)
 
 
-# Walls, window walls and pilasters as plain boxes; doorways leave a 1.1 m gap between two jambs.
+# Walls, window walls and pilasters as plain boxes; the jambs match the open arch.
 # Floors get no collision at all: the player floats at y = 0, like in level.gd.
 func _wall_boxes() -> void:
 	for r in rooms:
@@ -363,12 +400,16 @@ func _wall_boxes() -> void:
 				continue
 			var wall: Node3D = slot.get_node("Wall")
 			var way: Node3D = slot.get_node("Doorway")
-			if wall.visible or (way.visible and d["entrance"]):
-				_box(slot.global_transform, Vector3(0, 2.25, 0), Vector3(2.0, 4.5, 0.4))     # walled up / the shut entrance
+			if wall.visible:
+				_box(slot.global_transform, Vector3(0, 2.25, 0), Vector3(2.0, 4.5, 0.4))
 			elif way.visible:
+				var jamb_width := 1.0 - DOOR_HALF_WIDTH
 				for sx in [-1.0, 1.0]:
-					_box(slot.global_transform, Vector3(sx * 0.79, 2.25, 0), Vector3(0.46, 4.5, 0.4))
+					_box(slot.global_transform, Vector3(sx * (1.0 - jamb_width * 0.5), 2.25, 0), Vector3(jamb_width, 4.5, 0.4))
 				_box(slot.global_transform, Vector3(0, 3.5, 0), Vector3(2.0, 2.0, 0.4))         # above the arch
+				if d["entrance"]:
+					var leaf_box := _world_box(way.get_node("Door/DoorLeaf"))
+					_box_xf(Transform3D(Basis.IDENTITY, leaf_box.get_center()), leaf_box.size)
 
 
 # ------------------------------------------------- demon map + hiding spots
@@ -378,11 +419,7 @@ func _carve_and_block() -> void:
 		nav.carve(r["rect"].grow(-0.26))
 		for d in r["doors"]:
 			if d["link"] >= 0 and d["own"]:
-				var p: Vector2 = d["pos"]
-				if absf(d["dir"].x) > 0.5:
-					nav.carve(Rect2(p.x - 1.0, p.y - 0.6, 2.0, 1.2))
-				else:
-					nav.carve(Rect2(p.x - 0.6, p.y - 1.0, 1.2, 2.0))
+				nav.carve(_door_strip(d, 0.7, DOOR_HALF_WIDTH - 0.2))
 	for r in rooms:
 		for prop in _props_of(r["node"]):
 			var box := _world_box(prop)
@@ -459,8 +496,10 @@ func _box_xf(xf: Transform3D, size: Vector3) -> void:
 	_body.add_child(cs)
 
 
-func _world_box(n: Node) -> AABB:
+func _world_box(n: Node3D) -> AABB:
 	var box := AABB()
+	if not n.is_visible_in_tree():
+		return box
 	var first := true
 	for mi in n.find_children("*", "MeshInstance3D", true, false):
 		if not mi.is_visible_in_tree() or mi.mesh == null:
@@ -468,7 +507,7 @@ func _world_box(n: Node) -> AABB:
 		var b: AABB = mi.global_transform * mi.get_aabb()
 		box = b if first else box.merge(b)
 		first = false
-	if n is MeshInstance3D:
+	if n is MeshInstance3D and n.mesh != null:
 		var b2: AABB = n.global_transform * n.get_aabb()
 		box = b2 if first else box.merge(b2)
 	return box
@@ -592,7 +631,8 @@ func _end_room() -> void:
 	var ahead := Vector2(-sin(stop), cos(stop))
 	var outward := Vector2(cos(stop), sin(stop))
 	var body = Models.dead_exorcist()
-	var o := line_end - ahead * 1.14 + outward * 0.47
+	var o := line_end - ahead * 1.0 - outward * 0.15
+	body.name = "DeadExorcist"
 	body.transform = Transform3D(Basis(Vector3(ahead.x, 0.0, ahead.y), Vector3.UP, Vector3(-outward.x, 0.0, -outward.y)), Vector3(o.x, 0.0, o.y))
 	add_child(body)
 	var claws = Models.claw_marks()

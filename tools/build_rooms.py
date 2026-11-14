@@ -156,9 +156,10 @@ ROOMS = [
          # so the demon (and you) can get round them; two columns in the open east end
          fixed=[("pew", x, s * 1.35, 0, 90, 0.75) for x in (-3.6, -1.6, 0.4) for s in (-1, 1)]
                + [("column_full", 2.6, s * 2.25, 0, 0) for s in (-1, 1)]),
-    dict(name="room2_end", kind="end", label="2 END (altar)", nx=3, ny=3, doors=["S1", "E1"], windows=["N0", "N2"],
-         no_slots=["N0", "N1", "N2", "W0", "W1", "W2", "E0", "E2"], skip_corners=["NW", "NE"], chandeliers=[(0, -1.6)],
-         fixed=[("altar", 0, 0.3, 0, 0), ("cross", 0, 2.72, 3.65, 0), ("candelabrum", -1.9, 2.2, 0, 0), ("candelabrum", 1.9, 2.2, 0, 0)],
+    dict(name="room2_end", kind="end", label="2 END (altar)", nx=4, ny=4, doors=["S1", "E1"], windows=["N0", "N3"],
+         no_slots=["N0", "N1", "N2", "N3", "W0", "W1", "W2", "W3", "E0", "E1", "E2", "E3", "S0", "S2", "S3"],
+         skip_corners=["SW", "SE", "NW", "NE"], chandeliers=[(0, -1.6)],
+         fixed=[("altar", 0, 0.3, 0, 0), ("cross", 0, 3.72, 3.65, 0), ("candelabrum", -2.6, 3.2, 0, 0), ("candelabrum", 2.6, 3.2, 0, 0)],
          items=[]),
     dict(name="room3_start", kind="start", label="3 START (entrance)", nx=3, ny=2, doors=["N1", "S1"], windows=["W1", "E1"], no_slots=["W0"],
          chandeliers=[(0, -1)], fixed=[("font", -1.9, -0.6, 0, 0), ("lantern", 0.9, -1.5, 0, 30)]),
