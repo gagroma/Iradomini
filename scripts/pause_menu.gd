@@ -77,7 +77,7 @@ func _close_settings() -> void:
 
 
 func _button(caption: String, y: float, action: Callable) -> Button:
-	var button := UIStyle.action_button(caption, Rect2(19, y, 150, 26), 17)
+	var button := UIStyle.action_button(caption, Rect2(19, y, 150, 26), 17, true)
 	button.pressed.connect(action)
 	_actions.add_child(button)
 	return button

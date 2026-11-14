@@ -55,11 +55,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(_delta: float) -> void:
 	var hovered := get_viewport().gui_get_hovered_control() as Button
-	var focused := get_viewport().gui_get_focus_owner() as Button
-	var active := hovered if hovered in _choice_buttons else focused
 	_choice_highlight.hide()
 	for button in _choice_buttons:
-		var selected := button == active and button.is_visible_in_tree()
+		var selected := button == hovered and button.is_visible_in_tree()
 		var caption: String = button.get_meta("caption")
 		var text := "> " + caption if selected else caption
 		if button.text != text:

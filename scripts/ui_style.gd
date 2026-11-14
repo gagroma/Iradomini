@@ -43,7 +43,7 @@ static func panel(at: Vector2, dimensions: Vector2, opacity := 0.95) -> ColorRec
 	return rect
 
 
-static func action_button(caption: String, bounds: Rect2, size: int) -> Button:
+static func action_button(caption: String, bounds: Rect2, size: int, hover_only := false) -> Button:
 	var button := Button.new()
 	button.text = caption
 	button.position = bounds.position
@@ -57,7 +57,11 @@ static func action_button(caption: String, bounds: Rect2, size: int) -> Button:
 	highlight.bg_color = Color("#eee1be19")
 	highlight.border_color = ASH
 	highlight.border_width_bottom = 1
-	button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	for state in ["hover", "pressed", "focus"]:
-		button.add_theme_stylebox_override(state, highlight)
+	var empty := StyleBoxEmpty.new()
+	button.add_theme_stylebox_override("normal", empty)
+	button.add_theme_stylebox_override("hover", highlight)
+	for state in ["pressed", "focus"]:
+		button.add_theme_stylebox_override(state, empty if hover_only else highlight)
+	if hover_only:
+		button.add_theme_stylebox_override("hover_pressed", highlight)
 	return button
