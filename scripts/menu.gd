@@ -1,17 +1,22 @@
 extends Node3D
 
 const Sfx = preload("res://scripts/sfx.gd")
+const UIStyle = preload("res://scripts/ui_style.gd")
+const TitleWordmark = preload("res://scripts/title_wordmark.gd")
+const HowToPlay = preload("res://scripts/how_to_play.gd")
 const FlameTransition = preload("res://scripts/flame_transition.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
 const GAME_SCENE = preload("res://main.tscn")
-const INK := Color("#f1dfc0")
-const MUTED_INK := Color("#bba587")
+const INK := UIStyle.BONE
+const MUTED_INK := UIStyle.ASH
 const BRASS := Color("#b48c5a")
 
 var _choices: Control
 var _settings: Control
 var _title_art: Control
 var _play_button: Button
+var _how_to_button: Button
+var _how_to: HowToPlay
 var _settings_button: Button
 var _volume_slider: HSlider
 var _fullscreen_button: CheckButton
@@ -21,7 +26,8 @@ var _drone: AudioStreamPlayer
 var _sfx: Node
 var _intro: Tween
 var _starting := false
-var _display_font: Font
+var _choice_highlight: ColorRect
+var _choice_buttons: Array[Button] = []
 
 @onready var _stage = $Stage
 
@@ -51,6 +57,23 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+func _process(_delta: float) -> void:
+	var hovered := get_viewport().gui_get_hovered_control() as Button
+	var focused := get_viewport().gui_get_focus_owner() as Button
+	var active := hovered if hovered in _choice_buttons else focused
+	_choice_highlight.hide()
+	for button in _choice_buttons:
+		var selected := button == active and button.is_visible_in_tree()
+		var caption: String = button.get_meta("caption")
+		var text := "> " + caption if selected else caption
+		if button.text != text:
+			button.text = text
+			button.modulate = Color.WHITE if selected else MUTED_INK
+		if selected:
+			_choice_highlight.global_position = button.global_position - Vector2(4, 3)
+			_choice_highlight.show()
+
+
 func _start_game() -> void:
 	if _starting:
 		return
@@ -78,6 +101,19 @@ func _open_settings() -> void:
 	_volume_slider.grab_focus()
 
 
+func _open_how_to() -> void:
+	_choices.hide()
+	_title_art.hide()
+	_how_to.open()
+
+
+func _close_how_to() -> void:
+	_how_to.close()
+	_title_art.show()
+	_choices.show()
+	_how_to_button.grab_focus()
+
+
 func _close_settings() -> void:
 	_settings.hide()
 	_choices.show()
@@ -96,13 +132,6 @@ func _quit_game() -> void:
 
 
 func _build_interface() -> void:
-	var fonts := SystemFont.new()
-	fonts.font_names = PackedStringArray(["Cormorant Garamond", "Georgia", "Times New Roman", "Liberation Serif", "DejaVu Serif"])
-	var display := FontVariation.new()
-	display.base_font = fonts
-	display.spacing_glyph = 1
-	_display_font = display
-
 	var overlay := CanvasLayer.new()
 	add_child(overlay)
 	var ui := Control.new()
@@ -123,23 +152,28 @@ func _build_interface() -> void:
 	_title_art = Control.new()
 	_title_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(_title_art)
-	_label(_title_art, "IRA DOMINI", Vector2(30, 48), 31, INK, _display_font)
-	var rule := ColorRect.new()
-	rule.position = Vector2(32, 95)
-	rule.size = Vector2(147, 1)
-	rule.color = Color("#795638")
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_title_art.add_child(rule)
+	var title := TitleWordmark.new()
+	title.position = Vector2(22, 16)
+	_title_art.add_child(title)
 
 	_choices = Control.new()
 	_choices.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(_choices)
-	_play_button = _button(_choices, "Play", 114, _start_game)
-	_settings_button = _button(_choices, "Settings", 149, _open_settings)
-	_button(_choices, "Quit", 184, _quit_game)
+	_choice_highlight = UIStyle.panel(Vector2.ZERO, Vector2(156, 29), 0.82)
+	_choice_highlight.z_index = 1
+	_choice_highlight.hide()
+	ui.add_child(_choice_highlight)
+	_play_button = _button(_choices, "Play", 139, _start_game)
+	_how_to_button = _button(_choices, "How to Play", 167, _open_how_to)
+	_settings_button = _button(_choices, "Settings", 195, _open_settings)
+	_button(_choices, "Exit", 223, _quit_game)
 	_build_settings(ui)
+	_how_to = HowToPlay.new()
+	ui.add_child(_how_to)
+	_how_to.back_requested.connect(_close_how_to)
 
 	_fade = ColorRect.new()
+	_fade.z_index = 3
 	ui.add_child(_fade)
 	_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -167,6 +201,7 @@ func _build_settings(parent: Control) -> void:
 	_settings.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(_settings)
 	_settings.hide()
+	_settings.add_child(UIStyle.panel(Vector2(20, 102), Vector2(172, 148)))
 
 	_volume_slider = _slider("Master Volume", 111, 0.0, 100.0, 1.0, GameSettings.master_volume)
 	_volume_slider.value_changed.connect(func(value: float):
@@ -183,9 +218,18 @@ func _build_settings(parent: Control) -> void:
 	_fullscreen_button.text = "Fullscreen"
 	_fullscreen_button.position = Vector2(32, 190)
 	_fullscreen_button.size = Vector2(148, 20)
-	_fullscreen_button.add_theme_font_size_override("font_size", 11)
-	_fullscreen_button.add_theme_color_override("font_color", INK)
-	_fullscreen_button.add_theme_stylebox_override("focus", _choice_style(true))
+	UIStyle.style_text(_fullscreen_button, 12)
+	var toggle_off := _slider_handle(MUTED_INK)
+	var toggle_on := _slider_handle(INK)
+	_fullscreen_button.add_theme_icon_override("unchecked", toggle_off)
+	_fullscreen_button.add_theme_icon_override("unchecked_mirrored", toggle_off)
+	_fullscreen_button.add_theme_icon_override("checked", toggle_on)
+	_fullscreen_button.add_theme_icon_override("checked_mirrored", toggle_on)
+	var toggle_focus := StyleBoxFlat.new()
+	toggle_focus.bg_color = Color("#f4ead611")
+	toggle_focus.border_color = MUTED_INK
+	toggle_focus.border_width_left = 1
+	_fullscreen_button.add_theme_stylebox_override("focus", toggle_focus)
 	_fullscreen_button.button_pressed = GameSettings.fullscreen
 	_fullscreen_button.toggled.connect(func(enabled: bool):
 		GameSettings.set_fullscreen(enabled)
@@ -196,8 +240,8 @@ func _build_settings(parent: Control) -> void:
 
 
 func _slider(label_text: String, y: float, low: float, high: float, step_size: float, initial: float) -> HSlider:
-	_label(_settings, label_text, Vector2(32, y), 11, INK)
-	var value_label := _label(_settings, "%d%%" % int(initial), Vector2(146, y), 10, MUTED_INK)
+	_label(_settings, label_text, Vector2(32, y), 12, INK)
+	var value_label := _label(_settings, "%d%%" % int(initial), Vector2(146, y), 11, MUTED_INK)
 	value_label.size.x = 34
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var slider := HSlider.new()
@@ -238,42 +282,31 @@ func _slider_handle(color: Color) -> ImageTexture:
 func _button(parent: Control, caption: String, y: float, clicked: Callable) -> Button:
 	var button := Button.new()
 	button.text = caption
+	button.set_meta("caption", caption)
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.position = Vector2(32, y)
-	button.size = Vector2(148, 29)
+	button.position = Vector2(26 if parent == _choices else 32, y)
+	button.size = Vector2(148, 23)
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.add_theme_font_override("font", _display_font)
-	button.add_theme_font_size_override("font_size", 18)
-	button.add_theme_color_override("font_color", MUTED_INK)
-	button.add_theme_color_override("font_hover_color", INK)
-	button.add_theme_color_override("font_focus_color", INK)
-	button.add_theme_color_override("font_pressed_color", INK)
-	button.add_theme_stylebox_override("normal", _choice_style(false))
-	button.add_theme_stylebox_override("hover", _choice_style(true))
-	button.add_theme_stylebox_override("pressed", _choice_style(true))
-	button.add_theme_stylebox_override("focus", _choice_style(true))
+	button.z_index = 2
+	UIStyle.style_text(button, 19)
+	button.modulate = MUTED_INK
+	var style := StyleBoxEmpty.new()
+	style.content_margin_left = 10.0
+	style.content_margin_right = 6.0
+	for state in ["normal", "hover", "pressed", "focus"]:
+		button.add_theme_stylebox_override(state, style)
+	for state in ["font_hover_color", "font_focus_color", "font_pressed_color"]:
+		button.add_theme_color_override(state, INK)
 	button.pressed.connect(clicked)
 	parent.add_child(button)
+	_choice_buttons.append(button)
 	return button
 
 
-func _choice_style(active: bool) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.content_margin_left = 10.0
-	style.content_margin_right = 6.0
-	style.bg_color = Color("#b48c5a1b") if active else Color.TRANSPARENT
-	style.border_color = BRASS
-	style.border_width_left = 1 if active else 0
-	return style
-
-
-func _label(parent: Control, caption: String, at: Vector2, size: int, color: Color, font: Font = null) -> Label:
+func _label(parent: Control, caption: String, at: Vector2, size: int, color: Color) -> Label:
 	var label := Label.new()
 	label.text = caption
 	label.position = at
-	label.add_theme_font_size_override("font_size", size)
-	label.add_theme_color_override("font_color", color)
-	if font != null:
-		label.add_theme_font_override("font", font)
+	UIStyle.style_text(label, size, color)
 	parent.add_child(label)
 	return label

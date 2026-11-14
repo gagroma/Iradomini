@@ -295,8 +295,12 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 	if dir.y < -0.05:
 		var t = -origin.y / dir.y
 		if t <= T.CHALK_REACH:
-			aim_point = Vector2(origin.x + dir.x * t, origin.z + dir.z * t)
-			aim_valid = true
+			var floor_point: Vector3 = origin + dir * t
+			aim_point = Vector2(floor_point.x, floor_point.z)
+			if main.level.nav.is_free(aim_point):
+				# The floor has no collider. Check whether a wall or prop hides it.
+				var ray := PhysicsRayQueryParameters3D.create(origin, floor_point, collision_mask)
+				aim_valid = get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
 
 	var want_draw = can_draw and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if want_draw:

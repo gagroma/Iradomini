@@ -12,6 +12,7 @@ extends Control
 # It fades in only when there is something to tell, and out again.
 # Drawn with Control._draw() at the game's 480x270, so lines stay pixel-sharp.
 
+const UIStyle = preload("res://scripts/ui_style.gd")
 const CENTRE := Vector2(240, 14)
 const PALE := Color(0.9, 0.86, 0.74)
 const AMBER := Color(1.0, 0.68, 0.18)
@@ -40,9 +41,7 @@ func _ready() -> void:
 	_label.position = Vector2(0, 24)
 	_label.size = Vector2(480, 12)
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label.add_theme_font_size_override("font_size", 8)
-	_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	_label.add_theme_constant_override("outline_size", 3)
+	UIStyle.style_text(_label, 10)
 	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_label)
 

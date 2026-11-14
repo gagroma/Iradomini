@@ -1,6 +1,7 @@
 extends Control
 
 const T = preload("res://scripts/tuning.gd")
+const UIStyle = preload("res://scripts/ui_style.gd")
 const INK := Color("#f8f8f5")
 const EDGE := Color("#221d1be8")
 const TRACK := Color("#686360")
@@ -49,10 +50,7 @@ func _ready() -> void:
 	_amount.size = Vector2(46.0, 18.0)
 	_amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_amount.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_amount.add_theme_font_size_override("font_size", 12)
-	_amount.add_theme_color_override("font_color", INK)
-	_amount.add_theme_color_override("font_outline_color", EDGE)
-	_amount.add_theme_constant_override("outline_size", 3)
+	UIStyle.style_text(_amount, 13)
 	_amount.text = "%.1f m" % _remaining
 	add_child(_amount)
 

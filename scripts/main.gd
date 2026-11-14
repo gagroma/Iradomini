@@ -21,6 +21,7 @@ const Demon = preload("res://scripts/demon.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
+const INTERACTION_AIM_DOT := 0.95
 const POST_SHADER = preload("res://shaders/post.gdshader")
 
 const RELIC_NAMES = {"chalice": "Chalice", "cross": "Cross", "censer": "Censer", "book": "Prayer Book"}
@@ -60,9 +61,12 @@ var _choir = null
 var _circle_hint_done := false
 var _env: Environment
 var _bright := false
+var _interaction_target: Variant
 
 
 func _ready() -> void:
+	# Sample interaction targets after the player's camera has moved this tick.
+	process_physics_priority = 1
 	# The seed decides the level layout. It is kept in the Engine object so it
 	# survives a scene reload; a new one is rolled after every death (GDD).
 	if not Engine.has_meta("ira_seed"):
@@ -207,9 +211,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+func _physics_process(_dt: float) -> void:
+	_interaction_target = _find_target()
+
+
 # What would E do right now? Returns a Dictionary, or null for "nothing".
 func _find_target() -> Variant:
-	if game_state != "play" or not player.alive:
+	if candle_intro or game_state != "play" or not player.alive:
 		return null
 	var eye = player.cam.global_position
 	var forward = -player.cam.global_transform.basis.z
@@ -221,20 +229,29 @@ func _find_target() -> Variant:
 			continue
 		var flat = Vector2(r["pos"].x, r["pos"].z).distance_to(pp)
 		var to = (r["pos"] - eye).normalized()
-		if flat < best_d and forward.dot(to) > 0.45:
+		if flat < best_d and forward.dot(to) > INTERACTION_AIM_DOT and _can_see_target(eye, r["pos"]):
 			best = r
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
 	if carried > 0 and pp.distance_to(level.altar_pos) < 2.7:
-		return {"type": "altar"}
+		var to_altar: Vector3 = (level.altar_top - eye).normalized()
+		if forward.dot(to_altar) > INTERACTION_AIM_DOT and _can_see_target(eye, level.altar_top):
+			return {"type": "altar"}
 	return null
 
 
+func _can_see_target(eye: Vector3, point: Vector3) -> bool:
+	# The target origins sit on their pedestals.
+	var ray := PhysicsRayQueryParameters3D.create(eye, point + Vector3.UP * 0.08, player.collision_mask)
+	return get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
+
+
 func _interact() -> void:
-	var target = _find_target()
-	if target == null:
+	if game_state != "play" or not player.alive or _interaction_target == null:
 		return
+	var target = _interaction_target
+	_interaction_target = null
 	if target["type"] == "relic":
 		_take_relic(target["relic"])
 	else:
@@ -274,8 +291,7 @@ func _place_relics() -> void:
 		hud.show_note("Relics on the altar  %d/%d" % [placed, T.RELICS_NEEDED])
 
 
-func _prompt_text() -> String:
-	var target = _find_target()
+func _prompt_text(target: Variant) -> String:
 	if target != null:
 		if target["type"] == "relic":
 			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
@@ -445,8 +461,8 @@ func _process(dt: float) -> void:
 	hud.set_chalk_supply(chalk.chalk, playing)
 
 	# words on screen
-	hud.set_prompt(_prompt_text())
-	hud.set_dot(player.aim_valid and game_state == "play")
+	hud.set_prompt(_prompt_text(_interaction_target) if playing else "")
+	hud.update_reticle(playing, player.aim_valid, _interaction_target != null, player.erase_progress, dt)
 	var words = "Relics %d/%d" % [carried + placed, T.RELICS_NEEDED]
 	if player.critical:
 		words += "  ·  WOUNDED %d" % int(ceil(player.critical_time))
