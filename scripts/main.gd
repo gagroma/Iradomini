@@ -1,0 +1,431 @@
+extends Node3D
+# MAIN - starts the game and connects the parts.
+#   level.gd  builds the cathedral        chalk.gd  drawing and THE RULE
+#   player.gd you                         demon.gd  it
+#   hud.gd    words on screen             sfx.gd    sound
+#   tuning.gd every number from the GDD - change numbers there first
+#
+# Sources: GDD v6 ("Gnev Gospoden" / "Mel i Sol") for all rules; the fear
+# effects follow its "Kamera i oshchushchenie" section; the look is PS1 low
+# resolution (480x270, see project settings) plus the pixel-splat models.
+#
+# Extra keys for testing: R = restart with a new level, F3 = debug numbers,
+# F4 = lights on / fog off, F11 = full screen, Esc = free the mouse (click
+# to grab it again).
+
+const T = preload("res://scripts/tuning.gd")
+const Level = preload("res://scripts/level.gd")
+const Chalk = preload("res://scripts/chalk.gd")
+const Player = preload("res://scripts/player.gd")
+const Demon = preload("res://scripts/demon.gd")
+const Hud = preload("res://scripts/hud.gd")
+const Sfx = preload("res://scripts/sfx.gd")
+const Models = preload("res://scripts/models.gd")
+const POST_SHADER = preload("res://shaders/post.gdshader")
+
+const RELIC_NAMES = {"chalice": "чаша", "cross": "крест", "censer": "кадило", "book": "молитвенник"}
+
+var level
+var chalk
+var player
+var demon
+var hud
+var sfx
+var post: ShaderMaterial
+
+var game_state := "play"        # "play", "dead" or "ending"
+var fear := 0.0                 # 0..1 from how close the demon is
+var relics := []                # {"node", "light", "pos", "kind", "taken", "chapel"}
+var carried := 0                # relics in your hands
+var placed := 0                 # relics already on the altar
+
+var _seed := 0
+var _time := 0.0
+var _flash := 0.0
+var _fade := 1.0
+var _fade_target := 0.0
+var _hurt := 0.0
+var _heart_wait := 0.0
+var _door_done := false
+var _clatter_done := false
+var _clatter_wait := -1.0
+var _clatter_pos := Vector3.ZERO
+var _state_time := 0.0
+var _debug := false
+var _drone = null
+var _choir = null
+var _circle_hint_done := false
+var _env: Environment
+var _bright := false
+
+
+func _ready() -> void:
+	# The seed decides the level layout. It is kept in the Engine object so it
+	# survives a scene reload; a new one is rolled after every death (GDD).
+	if not Engine.has_meta("ira_seed"):
+		randomize()
+		Engine.set_meta("ira_seed", randi())
+	_seed = Engine.get_meta("ira_seed")
+
+	sfx = Sfx.new()
+	add_child(sfx)
+	_make_environment()
+
+	level = Level.new()
+	add_child(level)
+	level.build(_seed)
+
+	chalk = Chalk.new()
+	add_child(chalk)
+	chalk.setup(level.nav)
+	chalk.add_permanent(level.narthex_poly)
+	chalk.add_decor(level.altar_circle)
+	chalk.loop_closed.connect(_on_loop_closed)
+	chalk.stroke_burned.connect(_on_stroke_burned)
+
+	player = Player.new()
+	add_child(player)
+	player.setup(self)
+	player.position = level.player_start
+
+	demon = Demon.new()
+	add_child(demon)
+	demon.setup(self)
+
+	_make_post()
+	hud = Hud.new()
+	add_child(hud)
+	hud.setup()
+	_spawn_relics()
+
+	_drone = sfx.loop("drone", -13.0)
+	_choir = sfx.loop("choir_rev", -60.0)
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+# GDD "Vizualnyi stil": thick fog, two light colours (cold moon, warm candles).
+func _make_environment() -> void:
+	var env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.012, 0.014, 0.03)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.32, 0.36, 0.56)
+	env.ambient_light_energy = 0.7
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.02, 0.025, 0.05)
+	env.fog_density = 0.055
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	_env = env
+	var world = WorldEnvironment.new()
+	world.environment = env
+	add_child(world)
+
+
+# One full-screen rectangle that runs post.gdshader over the finished picture.
+func _make_post() -> void:
+	var canvas = CanvasLayer.new()
+	canvas.layer = 1
+	add_child(canvas)
+	var rect = ColorRect.new()
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(rect)
+	rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	post = ShaderMaterial.new()
+	post.shader = POST_SHADER
+	rect.material = post
+
+
+func _spawn_relics() -> void:
+	for spot in level.relic_spots:
+		var node = Models.relic(spot["kind"])
+		node.position = spot["pos"]
+		add_child(node)
+		var light = OmniLight3D.new()
+		light.position = spot["pos"] + Vector3(0.0, 0.3, 0.0)
+		light.light_color = Color(1.0, 0.85, 0.5)
+		light.light_energy = 0.5
+		light.omni_range = 2.2
+		add_child(light)
+		relics.append({
+			"node": node,
+			"light": light,
+			"pos": spot["pos"],
+			"kind": spot["kind"],
+			"chapel": spot["chapel"],
+			"taken": false,
+		})
+
+
+# ------------------------------------------------------------------- INPUT
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_E:
+			_interact()
+		elif event.physical_keycode == KEY_R:
+			_restart()
+		elif event.physical_keycode == KEY_F3:
+			_debug = not _debug
+		elif event.physical_keycode == KEY_F4:
+			# test helper: lights on, fog off - to look at the level itself
+			_bright = not _bright
+			_env.ambient_light_energy = 3.0 if _bright else 0.7
+			_env.fog_enabled = not _bright
+		elif event.physical_keycode == KEY_F11:
+			var full = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		elif event.physical_keycode == KEY_ESCAPE:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventMouseButton and event.pressed:
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+# What would E do right now? Returns a Dictionary, or null for "nothing".
+func _find_target() -> Variant:
+	if game_state != "play" or not player.alive:
+		return null
+	var eye = player.cam.global_position
+	var forward = -player.cam.global_transform.basis.z
+	var pp = player.pos2()
+	var best = null
+	var best_d = 2.3
+	for r in relics:
+		if r["taken"]:
+			continue
+		var flat = Vector2(r["pos"].x, r["pos"].z).distance_to(pp)
+		var to = (r["pos"] - eye).normalized()
+		if flat < best_d and forward.dot(to) > 0.45:
+			best = r
+			best_d = flat
+	if best != null:
+		return {"type": "relic", "relic": best}
+	if carried > 0 and pp.distance_to(level.altar_pos) < 2.7:
+		return {"type": "altar"}
+	return null
+
+
+func _interact() -> void:
+	var target = _find_target()
+	if target == null:
+		return
+	if target["type"] == "relic":
+		_take_relic(target["relic"])
+	else:
+		_place_relics()
+
+
+func _take_relic(r: Dictionary) -> void:
+	r["taken"] = true
+	r["node"].visible = false
+	r["light"].visible = false
+	carried += 1
+	# GDD: every relic you pick up makes your steps louder ("the relics whisper")
+	player.relics_found = carried + placed
+	sfx.play("pickup", -6.0)
+	hud.show_note("%s  (%d/%d)  ·  шаги стали громче" % [RELIC_NAMES[r["kind"]], carried + placed, T.RELICS_NEEDED])
+	# GDD key moment 3: in a chapel a candlestick falls and the demon comes running
+	if r["chapel"] and not _clatter_done:
+		_clatter_done = true
+		_clatter_wait = 0.7
+		_clatter_pos = r["pos"]
+
+
+# GDD "Final": put all four on the altar.
+func _place_relics() -> void:
+	var slot = placed
+	for r in relics:
+		if r["taken"] and not r["node"].visible:
+			r["node"].position = level.altar_top + Vector3(-0.75 + 0.5 * slot, 0.0, 0.1)
+			r["node"].visible = true
+			slot += 1
+	placed += carried
+	carried = 0
+	sfx.play_at("place", level.altar_top, 0.0)
+	if placed >= T.RELICS_NEEDED:
+		_start_ending()
+	else:
+		hud.show_note("на алтаре %d из %d" % [placed, T.RELICS_NEEDED])
+
+
+func _prompt_text() -> String:
+	var target = _find_target()
+	if target != null:
+		if target["type"] == "relic":
+			return "E - взять: " + RELIC_NAMES[target["relic"]["kind"]]
+		return "E - положить на алтарь (%d)" % carried
+	if game_state == "play" and player.aim_valid and not player.drawing:
+		if chalk.loop_at(player.aim_point) != null:
+			return "ПКМ (держать) - стереть круг"
+	return ""
+
+
+# ------------------------------------------------- CALLED BY PLAYER / DEMON
+
+# One footstep. GDD "Vospriyatie": step 2 m, run 10 m, more with every relic.
+func player_step(running: bool, crouching: bool) -> void:
+	var radius = T.NOISE_STEP + T.NOISE_PER_RELIC_STEP * player.relics_found
+	var volume = -20.0
+	if running:
+		radius = T.NOISE_RUN + T.NOISE_PER_RELIC_RUN * player.relics_found
+		volume = -9.0
+	elif crouching:
+		radius = T.NOISE_CROUCH
+		volume = -30.0
+	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
+	demon.hear(player.pos2(), radius)
+
+
+func on_player_hit() -> void:
+	_flash = 0.9
+	sfx.play("hit", 2.0)
+	hud.show_note("РАНЕН  ·  второй удар убьёт", 5.0)
+
+
+func on_player_died() -> void:
+	game_state = "dead"
+	_state_time = 0.0
+	sfx.play("hit", 3.0)
+	sfx.play("demon_scream", 6.0, 0.85)
+
+
+func on_banished(loop) -> void:
+	if loop != null:
+		chalk.on_banish(loop)
+	_flash = 0.7
+	sfx.play("banish", 0.0)
+	hud.show_note("демон изгнан  ·  мел вернётся за минуту", 6.0)
+
+
+func on_demon_returned() -> void:
+	sfx.play("demon_notice", -12.0, 0.7)    # a far-off warning that it is back
+	hud.show_note("он вернулся", 3.0)
+
+
+func on_demon_scream() -> void:
+	fear = maxf(fear, 0.8)
+
+
+func _on_loop_closed(_loop) -> void:
+	if not _circle_hint_done:
+		_circle_hint_done = true
+		hud.show_note("круг замкнут  ·  ПКМ (держать) вернёт мел", 5.0)
+
+
+func _on_stroke_burned() -> void:
+	sfx.play("burn", -14.0)
+
+
+# ------------------------------------------------------------------ ENDING
+
+func _start_ending() -> void:
+	game_state = "ending"
+	_state_time = 0.0
+	player.frozen = true
+	chalk.release()
+	chalk.close_decor()
+	demon.end_dissolve()
+	sfx.play("ending", 0.0)
+
+
+func _restart() -> void:
+	Engine.set_meta("ira_seed", randi())
+	get_tree().reload_current_scene()
+
+
+# ----------------------------------------------------------------- EVERY FRAME
+
+func _process(dt: float) -> void:
+	_time += dt
+	_state_time += dt
+
+	# GDD: effects grow from 0 to 1 with how close the demon is
+	var target_fear = 0.0
+	if demon.is_active() and game_state == "play":
+		target_fear = clampf(1.0 - demon.distance_to_player() / T.FEAR_DISTANCE, 0.0, 1.0)
+	fear = lerpf(fear, target_fear, 1.0 - exp(-3.0 * dt))
+	player.fear = fear
+	chalk.jitter = fear
+
+	# the first scripted moment: the door slams, the demon comes to look,
+	# walks into the salt line and learns you the rule without a word
+	if not _door_done and _time > 2.5:
+		_door_done = true
+		sfx.play_at("door_slam", level.door_pos, 4.0)
+		demon.hear(Vector2(0.0, 1.0), 200.0)
+
+	if _clatter_wait > 0.0:
+		_clatter_wait -= dt
+		if _clatter_wait <= 0.0:
+			sfx.play_at("clatter", _clatter_pos, 4.0)
+			demon.hear(Vector2(_clatter_pos.x, _clatter_pos.z), 200.0)
+
+	# GDD "Serdtsebienie": louder and faster with fear
+	var beat = fear
+	if player.critical:
+		beat = maxf(beat, 0.6)
+	if beat > 0.08 and game_state == "play":
+		_heart_wait -= dt
+		if _heart_wait <= 0.0:
+			_heart_wait = lerpf(1.15, 0.42, beat)
+			sfx.play("heartbeat", lerpf(-20.0, -3.0, beat), lerpf(0.9, 1.15, beat))
+
+	# GDD: a quiet reversed choir in the crossing
+	if _choir != null:
+		var in_crossing = level.crossing_rect.has_point(player.pos2())
+		var want = -19.0 if in_crossing else -60.0
+		_choir.volume_db = lerpf(_choir.volume_db, want, 1.0 - exp(-1.2 * dt))
+
+	level.update_candles(demon.pos2, demon.is_active(), dt, sfx)
+
+	# death: the camera has turned to its face; fade out, then a new level
+	if game_state == "dead":
+		if _state_time > 1.3:
+			_fade_target = 1.0
+		if _state_time > 3.4:
+			_restart()
+			return
+
+	# ending: look up at the round window while the circle closes
+	var white = 0.0
+	if game_state == "ending":
+		player.look_at_point(level.window_pos)
+		white = clampf((_state_time - 3.0) / 4.0, 0.0, 0.8)
+		if _state_time > 5.0:
+			hud.show_title("КРУГ ЗАМКНУТ", "обряд закончен  ·  R - начать заново")
+
+	# screen effects
+	_flash = move_toward(_flash, 0.0, dt * 1.6)
+	_fade = move_toward(_fade, _fade_target, dt * 0.7)
+	_hurt = lerpf(_hurt, 1.0 if player.critical else 0.0, 1.0 - exp(-5.0 * dt))
+	post.set_shader_parameter("fear", fear)
+	post.set_shader_parameter("hurt", _hurt)
+	post.set_shader_parameter("flash", maxf(_flash, white))
+	post.set_shader_parameter("fade", _fade)
+
+	# words on screen
+	hud.set_prompt(_prompt_text())
+	hud.set_dot(player.aim_valid and game_state == "play")
+	var words = "святыни %d/%d" % [carried + placed, T.RELICS_NEEDED]
+	if player.is_hidden_now:
+		words += "  ·  СКРЫТ"
+	if player.critical:
+		words += "  ·  РАНЕН %d" % int(ceil(player.critical_time))
+	if game_state != "play":
+		words = ""
+	hud.set_status(words)
+	hud.set_debug(_debug, _debug_text())
+
+
+func _debug_text() -> String:
+	if not _debug:
+		return ""
+	var lines = []
+	lines.append("fps %d   seed %d" % [Engine.get_frames_per_second(), _seed])
+	lines.append("demon %s  %.1f m" % [demon.state_name(), demon.distance_to_player()])
+	lines.append("sees you: %s" % str(demon.sees_player))
+	lines.append("banish %.0f / %.0f s" % [demon.banish_time, T.BANISH_TIME])
+	lines.append("chalk %.1f m  (+%.1f on floor)" % [chalk.chalk, chalk.locked()])
+	lines.append("circles %d   line %.1f m" % [chalk.loops.size() - 1, chalk.stroke_len])
+	lines.append("fear %.2f   hidden %s" % [fear, str(player.is_hidden_now)])
+	return "\n".join(lines)
