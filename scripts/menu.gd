@@ -56,16 +56,17 @@ func _start_game() -> void:
 	_intro.kill()
 	_fade.color.a = 0.0
 	_choices.hide()
-	_stage.break_circle()
+	await _stage.face_camera()
 	if _breath != null:
 		_breath.stop()
-	_sfx.play("burn", -8.0, 0.7)
+	_sfx.play("burn", -6.0, 0.8)
+	await _stage.burn_circle()
 
 	var transition := create_tween()
-	transition.tween_interval(0.29)
-	transition.tween_property(_fade, "color:a", 1.0, 0.57).set_trans(Tween.TRANS_SINE)
+	transition.tween_interval(0.13)
+	transition.tween_property(_fade, "color:a", 1.0, 0.44).set_trans(Tween.TRANS_SINE)
 	if _drone != null:
-		transition.parallel().tween_property(_drone, "volume_db", -50.0, 0.57)
+		transition.parallel().tween_property(_drone, "volume_db", -50.0, 0.44)
 	await transition.finished
 	var result := get_tree().change_scene_to_file(GAME_SCENE)
 	if result != OK:

@@ -10,21 +10,18 @@ const CHALK_COLOR := Color("#d2bd99")
 const CIRCLE_CENTER := Vector3(1.79, 0.0, 0.0)
 const CIRCLE_RADIUS := 1.54
 const CHALK_SEGMENTS := 128
-const PATROL_RADIUS := 0.94
-const HOLD_TIME := 3.8
-const WALK_TIME := 9.0
+const IDLE_HEAD := Vector3(0.10, 0.31, -0.03)
 
 var _wailer: Node3D
-var _parts: Dictionary
-var _skin: ShaderMaterial
+var _head: Node3D
+var _spine: Node3D
+var _idle: Tween
 var _candle: Node3D
-var _chalk_mesh := ImmediateMesh.new()
+var _chalk: MeshInstance3D
+var _chalk_material: ShaderMaterial
 var _dust: CPUParticles3D
 var _time := 0.0
-var _patrol_time := 0.0
-var _gap := 0.0
-var _gap_segments := -1
-var _broken := false
+var _burn_progress := 0.0
 
 @onready var _camera: Camera3D = $Camera
 
@@ -32,87 +29,90 @@ var _broken := false
 func _ready() -> void:
 	_camera.look_at(Vector3(-0.18, 1.24, 0.0))
 	_build_chamber()
-	_draw_circle(0)
-	var chalk_material := ShaderMaterial.new()
-	chalk_material.shader = Chalk.LINE_SHADER
-	chalk_material.set_shader_parameter("color", CHALK_COLOR)
-	var line := MeshInstance3D.new()
-	line.mesh = _chalk_mesh
-	line.material_override = chalk_material
-	add_child(line)
+	_build_circle()
 	_make_dust()
 
 	var model := Models.wailer()
 	_wailer = model["root"]
-	_parts = model["parts"]
-	_skin = model["material"]
-	var glow: StandardMaterial3D = _parts["glow"].material_override.duplicate()
+	var parts: Dictionary = model["parts"]
+	_head = parts["head"]
+	_spine = parts["spine"]
+	var skin: ShaderMaterial = model["material"]
+	skin.set_shader_parameter("brightness", 0.82)
+	var glow: StandardMaterial3D = parts["glow"].material_override.duplicate()
 	glow.albedo_color = Color("#b15a3f")
-	_parts["glow"].material_override = glow
+	parts["glow"].material_override = glow
 	add_child(_wailer)
-	_update_wailer()
+	_wailer.position = CIRCLE_CENTER + Vector3(-0.24, 0.0, 0.9)
+	var to_camera := _camera.position - _wailer.position
+	_wailer.rotation.y = atan2(-to_camera.x, -to_camera.z) + 0.68
+	_head.rotation = IDLE_HEAD
+	_start_idle()
 
 
 func _process(delta: float) -> void:
 	_time += delta
-	if not _broken:
-		_patrol_time = fmod(_patrol_time + delta, HOLD_TIME + WALK_TIME)
-	else:
-		_gap = move_toward(_gap, 1.0, delta / 0.43)
-		_draw_circle(ceili(_gap * 6.0))
-	_candle.tick(delta, _gap * 0.7)
-	_update_wailer()
+	_spine.rotation.x = sin(_time * 2.0) * 0.01 + _burn_progress * 0.065
+	_candle.tick(delta, _burn_progress * 0.75)
 
 
 func wailer_node() -> Node3D:
 	return _wailer
 
 
-func break_circle() -> void:
-	_broken = true
+func face_camera() -> void:
+	_idle.kill()
+	var to_camera := _spine.global_basis.inverse() * (_camera.global_position - _head.global_position)
+	# The splat model faces +Z underneath the Wailer's flipped root.
+	var yaw := atan2(to_camera.x, to_camera.z)
+	var pitch := atan2(-to_camera.y, Vector2(to_camera.x, to_camera.z).length())
+	var glance := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	glance.tween_property(_head, "rotation", Vector3(pitch, yaw, 0.0), 0.22)
+	await glance.finished
+
+
+func burn_circle() -> void:
 	_dust.restart()
 	_dust.emitting = true
+	var burn := create_tween()
+	burn.tween_method(_set_burn_progress, 0.0, 1.0, 0.66)
+	await burn.finished
+	_chalk.hide()
 
 
-func _update_wailer() -> void:
-	var walk := clampf((_patrol_time - HOLD_TIME) / WALK_TIME, 0.0, 1.0)
-	var moving := smoothstep(0.0, 0.12, walk) * (1.0 - smoothstep(0.88, 1.0, walk))
-	# Ease the orbit at both ends so the Wailer comes to a stop at the chalk.
-	var angle := TAU * (walk - sin(TAU * walk) / TAU) - 0.26
-	_wailer.position = CIRCLE_CENTER + Vector3(sin(angle), 0.0, cos(angle)) * PATROL_RADIUS
-	var to_camera := _camera.position - _wailer.position
-	var camera_yaw := atan2(-to_camera.x, -to_camera.z)
-	var watch := smoothstep(0.65, 1.65, _patrol_time) * (1.0 - smoothstep(HOLD_TIME - 0.75, HOLD_TIME, _patrol_time))
-	var posed_yaw := camera_yaw + 0.66
-	_wailer.rotation.y = lerp_angle(posed_yaw, angle - PI * 0.5, moving * (1.0 - _gap))
-	_parts["head"].rotation.y = -0.66 * maxf(watch, _gap)
-	_parts["head"].rotation.z = -0.12 * watch
-	var phase := angle * 9.0
-	var stride := sin(phase) * moving
-	var breath := sin(_time * 2.0)
-	_parts["leg_l"].rotation.x = stride * 0.46
-	_parts["leg_r"].rotation.x = -stride * 0.46
-	_parts["shin_l"].rotation.x = maxf(0.0, -stride) * 0.55
-	_parts["shin_r"].rotation.x = maxf(0.0, stride) * 0.55
-	_parts["arm_l"].rotation.x = -stride * 0.19 + breath * 0.018
-	_parts["arm_r"].rotation.x = stride * 0.19 - breath * 0.018
-	_parts["spine"].rotation.x = breath * 0.018
-	_parts["flip"].position.y = absf(stride) * 0.042 + breath * 0.012
-	_parts["flip"].rotation.x = breath * 0.012 - _gap * 0.10
-	_skin.set_shader_parameter("brightness", 0.82 + _gap * 0.18)
+func _set_burn_progress(progress: float) -> void:
+	_burn_progress = progress
+	_chalk_material.set_shader_parameter("burn_progress", progress)
 
 
-func _draw_circle(gap_segments: int) -> void:
-	if _gap_segments == gap_segments:
-		return
-	_gap_segments = gap_segments
+func _start_idle() -> void:
+	_idle = create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_idle.tween_interval(0.9)
+	_idle.tween_property(_head, "rotation", Vector3(0.06, 0.66, -0.04), 1.1)
+	_idle.tween_interval(0.65)
+	_idle.tween_property(_head, "rotation", Vector3(0.53, 0.17, 0.07), 0.95)
+	_idle.tween_interval(1.1)
+	_idle.tween_property(_head, "rotation", Vector3(0.06, -0.18, 0.03), 1.35)
+	_idle.tween_interval(0.8)
+	_idle.tween_property(_head, "rotation", IDLE_HEAD, 1.1)
+
+
+func _build_circle() -> void:
 	var points := PackedVector2Array()
-	var end := CHALK_SEGMENTS if gap_segments == 0 else CHALK_SEGMENTS - gap_segments + 1
-	for i in range(gap_segments, end):
+	for i in range(CHALK_SEGMENTS):
 		var angle := TAU * float(i) / CHALK_SEGMENTS
 		var radius := CIRCLE_RADIUS + sin(angle * 9.0) * 0.018 + sin(angle * 17.0) * 0.009
 		points.append(Vector2(CIRCLE_CENTER.x, CIRCLE_CENTER.z) + Vector2(sin(angle), cos(angle)) * radius)
-	Chalk.fill_ribbon(_chalk_mesh, points, gap_segments == 0, 0.11)
+	var mesh := ImmediateMesh.new()
+	Chalk.fill_ribbon(mesh, points, true, 0.11)
+	_chalk_material = ShaderMaterial.new()
+	_chalk_material.shader = Chalk.LINE_SHADER
+	_chalk_material.set_shader_parameter("color", CHALK_COLOR)
+	_chalk_material.set_shader_parameter("burn_origin", Vector2(CIRCLE_CENTER.x, CIRCLE_CENTER.z))
+	_chalk = MeshInstance3D.new()
+	_chalk.mesh = mesh
+	_chalk.material_override = _chalk_material
+	add_child(_chalk)
 
 
 func _make_dust() -> void:
@@ -137,7 +137,7 @@ func _make_dust() -> void:
 	grain.size = Vector3(0.019, 0.016, 0.019)
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = CHALK_COLOR
+	material.albedo_color = Color("#e7a96e")
 	grain.material = material
 	_dust.mesh = grain
 	add_child(_dust)
