@@ -14,6 +14,7 @@ extends Node3D
 # that, the chalk you used burns away.
 
 const T = preload("res://scripts/tuning.gd")
+const Boons = preload("res://scripts/boons.gd")
 const LINE_SHADER = preload("res://shaders/chalk_line.gdshader")
 const LINE_Y := 0.012               # height above the floor (just enough not to flicker)
 
@@ -21,7 +22,7 @@ signal loop_closed(loop)
 signal stroke_burned
 
 var nav
-var chalk: float = T.CHALK_MAX           # metres of chalk left in your hand
+var chalk: float = Boons.chalk_max()           # metres of chalk left in your hand
 var loops := []                     # every closed circle (each one is a Dictionary)
 var stroke := PackedVector2Array()  # the line being drawn right now
 var stroke_len := 0.0
@@ -386,7 +387,7 @@ func erase_tick(aim: Vector2, dt: float) -> float:
 	_erase_t += dt
 	if _erase_t >= T.ERASE_TIME:
 		# GDD: an erased circle gives ALL its chalk back
-		chalk = minf(T.CHALK_MAX, chalk + loop["length"])
+		chalk = minf(Boons.chalk_max(), chalk + loop["length"])
 		_remove_loop(loop)
 		erase_cancel()
 		return 1.0
@@ -479,9 +480,9 @@ func _process(dt: float) -> void:
 
 	# chalk slowly comes back by itself, but only up to what is not lying on
 	# the floor in your circles (rub them out to get that back at once)
-	var room = T.CHALK_MAX - locked() - stroke_len - chalk
+	var room = Boons.chalk_max() - locked() - stroke_len - chalk
 	if room > 0.0:
-		chalk += minf(room, T.CHALK_MAX / T.CHALK_REGEN_TIME * dt)
+		chalk += minf(room, Boons.chalk_max() / Boons.chalk_regen_time() * dt)
 
 	# ending animation of the altar circle
 	if _decor_close >= 0.0 and _decor_close < 1.0:

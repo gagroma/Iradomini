@@ -13,6 +13,7 @@ extends CharacterBody3D
 # no Input Map setup.
 
 const T = preload("res://scripts/tuning.gd")
+const Boons = preload("res://scripts/boons.gd")
 const HandCandle = preload("res://scripts/candle.gd")
 const HandChalk = preload("res://scripts/hand_chalk.gd")
 const Models = preload("res://scripts/models.gd")
@@ -56,6 +57,7 @@ var running := false
 var stamina := 5.0          # seconds of running left (tuning.gd STAMINA_MAX)
 var winded := false         # ran out: no running until you get your breath back
 var is_hidden_now := false  # crouched next to cover: the demon cannot see you
+var wards := 0
 var critical := false       # wounded: the next hit kills (GDD "Zdorovie")
 var critical_time := 0.0
 var relics_found := 0       # each one makes your steps louder
@@ -77,6 +79,8 @@ var _head_y := EYE_HEIGHT
 
 func setup(main_node) -> void:
 	main = main_node
+	stamina = Boons.stamina_max()
+	wards = Boons.wards()
 	collision_layer = 2         # the player is on layer 2, walls are on layer 1
 	collision_mask = 1
 	motion_mode = CharacterBody3D.MOTION_MODE_FLOATING   # flat floor: no gravity needed
@@ -184,14 +188,14 @@ func _physics_process(dt: float) -> void:
 		if stamina <= 0.0:
 			winded = true
 	else:
-		stamina = minf(T.STAMINA_MAX, stamina + dt * T.STAMINA_REGEN)
-		if winded and stamina >= T.STAMINA_MAX * T.STAMINA_RECOVER:
+		stamina = minf(Boons.stamina_max(), stamina + dt * Boons.stamina_regen())
+		if winded and stamina >= Boons.stamina_max() * T.STAMINA_RECOVER:
 			winded = false
-	var speed = T.WALK_SPEED
+	var speed = T.WALK_SPEED * Boons.speed_scale()
 	if crouching:
 		speed = T.CROUCH_SPEED
 	elif running:
-		speed = T.RUN_SPEED
+		speed = T.RUN_SPEED * Boons.speed_scale()
 	var wish = Vector3.ZERO
 	if input.length() > 0.0:
 		input = input.normalized()
@@ -242,7 +246,7 @@ func _update_camera(dt: float, moved: float) -> void:
 	var bob_y = sin(_bob) * 0.035 * moving
 	var bob_x = cos(_bob * 0.5) * 0.02 * moving
 	# breathing: heavier and faster the more out of breath you are
-	var puff = 1.0 - stamina / T.STAMINA_MAX
+	var puff = 1.0 - stamina / Boons.stamina_max()
 	_breath_phase += dt * (1.4 + 2.6 * puff)
 	var breath = sin(_breath_phase) * (0.008 + 0.022 * puff)
 	var shake = fear * fear * 0.006
@@ -269,7 +273,7 @@ func _update_camera(dt: float, moved: float) -> void:
 	# flickers harder the closer the demon is (GDD)
 	candle.tick(dt, fear)
 	# GDD "Zapas bez interfeisa": the chalk stick gets shorter as you use it
-	chalk_stick.set_left(clampf(main.chalk.chalk / T.CHALK_MAX, 0.0, 1.0))
+	chalk_stick.set_left(clampf(main.chalk.chalk / Boons.chalk_max(), 0.0, 1.0))
 
 
 # Drawing: the right arm stretches out towards the spot on the floor you look
@@ -308,7 +312,7 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 	aim_valid = false
 	if dir.y < -0.05:
 		var t = -origin.y / dir.y
-		if t <= T.CHALK_REACH:
+		if t <= Boons.chalk_reach():
 			var floor_point: Vector3 = origin + dir * t
 			aim_point = Vector2(floor_point.x, floor_point.z)
 			if main.level.nav.is_free(aim_point):
@@ -380,13 +384,22 @@ func take_hit(from: Vector3) -> void:
 		return
 	shake(0.7)
 	_pinned = 0.0
+	if wards > 0:
+		wards -= 1
+		_kick = 0.6
+		var push = global_position - from
+		push.y = 0.0
+		if push.length() > 0.01:
+			velocity = push.normalized() * 6.0
+		main.on_ward_broken()
+		return
 	if critical:
 		alive = false
 		main.chalk.release()
 		main.on_player_died()
 		return
 	critical = true
-	critical_time = T.CRITICAL_TIME
+	critical_time = Boons.critical_time()
 	_kick = 1.0
 	var away = global_position - from
 	away.y = 0.0

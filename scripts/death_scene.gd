@@ -3,6 +3,7 @@ extends Node3D
 const Models = preload("res://scripts/models.gd")
 const DeathText = preload("res://scripts/death_text.gd")
 const UIStyle = preload("res://scripts/ui_style.gd")
+const SkipHint = preload("res://scripts/skip_hint.gd")
 const BODY = preload("res://assets/models/player_body.glb")
 
 const DISH_R := 0.0575
@@ -45,6 +46,7 @@ var _focus := Vector3.ZERO
 var _retry: Button
 var _retry_box: Control
 var _dim := 0.0
+var _hint: Node
 var _start_cam: Transform3D
 var _trauma := 0.0
 var _thud := false
@@ -71,7 +73,7 @@ func start(main_node) -> void:
 	var want = -player.global_transform.basis.z
 	want.y = 0.0
 	want = want.normalized()
-	var to_demon = main.demon.global_position - _origin
+	var to_demon = main.nearest_demon().global_position - _origin
 	to_demon.y = 0.0
 	if to_demon.length() < 3.0 and to_demon.length() > 0.01:
 		to_demon = to_demon.normalized()
@@ -157,6 +159,9 @@ func start(main_node) -> void:
 	layer.add_child(_black)
 	_text = DeathText.new()
 	layer.add_child(_text)
+	_hint = SkipHint.attach(self, main)
+	if _hint != null:
+		_hint.skipped.connect(_skip)
 	_retry_box = Control.new()
 	_retry_box.position = Vector2(146, 190)
 	_retry_box.size = Vector2(188, 54)
@@ -239,6 +244,9 @@ func _process(dt: float) -> void:
 	if _t >= reveal + 0.25 and not _text.writing:
 		_text.begin()
 	if _text.done():
+		if _hint != null:
+			_hint.queue_free()
+			_hint = null
 		_dim = move_toward(_dim, 0.93, dt / 1.6)
 		if _dim > 0.55:
 			_retry_box.modulate.a = move_toward(_retry_box.modulate.a, 1.0, dt / 0.6)
@@ -246,6 +254,13 @@ func _process(dt: float) -> void:
 				_retry.disabled = false
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 				_retry.grab_focus()
+
+
+func _skip() -> void:
+	_t = maxf(_t, _black_at + FADE_OUT + BLACK_HOLD + FADE_IN)
+	if not _text.writing:
+		_text.begin()
+	_text._t = 1000.0
 
 
 func _eye_camera() -> Transform3D:
@@ -266,7 +281,7 @@ func _centre() -> Vector3:
 
 
 func _away_from_demon() -> Vector3:
-	var d = _centre() - main.demon.global_position
+	var d = _centre() - main.nearest_demon().global_position
 	d.y = 0.0
 	if d.length() < 0.05:
 		d = _side

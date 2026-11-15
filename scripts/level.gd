@@ -81,6 +81,8 @@ var _chapels := []
 var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
 var _frame := 0
+var extra_rooms := 0
+var relic_hardness := 0.0
 var _wings
 var _altar_beacon: OmniLight3D
 var _kit_wall_mat: ShaderMaterial
@@ -100,6 +102,8 @@ func build(seed_value: int, cathedral_scenario := false) -> void:
 	var bounds := Rect2(-13.5, z_end - 18.5, 27.0, 25.0 - z_end)
 	if cathedral_scenario:
 		_wings = RoomLevel.new()
+		_wings.extra_rooms = extra_rooms
+		_wings.relic_hardness = relic_hardness
 		add_child(_wings)
 		var portals: Array[Vector2] = []
 		for ch in _chapels:
@@ -852,14 +856,15 @@ func advance_ritual(placed: int) -> void:
 
 
 # GDD "Vsegda sebya vydayot": candles go out where the demon walks.
-func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, viewer := Vector2.INF) -> void:
+func update_candles(prowling: PackedVector2Array, dt: float, sfx, viewer := Vector2.INF) -> void:
 	if _wings != null:
-		_wings.update_candles(demon_pos, demon_active, dt, sfx)
+		_wings.update_candles(prowling, dt, sfx)
 	_time += dt
 	_frame += 1
+	var demon_active := not prowling.is_empty()
 	for i in candles.size():
 		var c = candles[i]
-		var d = c["pos2"].distance_to(demon_pos)
+		var d = RoomLevel.nearest(c["pos2"], prowling)
 		# the flame shudders as the demon comes near, then it goes out
 		var near = 0.0
 		if demon_active:

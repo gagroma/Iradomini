@@ -2,6 +2,7 @@ extends Node
 
 const PlayerScript = preload("res://scripts/player.gd")
 const Lighter = preload("res://scripts/lighter.gd")
+const SkipHint = preload("res://scripts/skip_hint.gd")
 
 const OUTSIDE := 9.5
 const STAND := 1.85
@@ -118,6 +119,27 @@ func _setup_crates() -> void:
 func play() -> void:
 	running = true
 	_go("wait")
+	var hint = SkipHint.attach(self, main)
+	if hint != null:
+		hint.skipped.connect(_skip)
+
+
+func _skip() -> void:
+	if not running:
+		return
+	if _lighter != null:
+		_lighter.queue_free()
+		_lighter = null
+	if not _flags.has("slammed"):
+		main.hear_all(Vector2(main.level.door_pos.x, main.level.door_pos.z), 200.0)
+	player.position = _approach if _has_crates else _stand
+	var yaw = _exit_yaw()
+	player.yaw = yaw
+	player.yaw_target = yaw
+	player.rotation.y = yaw
+	player.pitch = 0.0
+	player.pitch_target = 0.0
+	_finish()
 
 
 func _go(phase: String) -> void:
@@ -383,10 +405,11 @@ func _play_creak() -> void:
 
 
 func _slam() -> void:
+	_flags["slammed"] = true
 	_set_leaf(0.0)
 	main.sfx.play_at("door_slam", main.level.door_pos, 4.0)
 	player.shake(0.35)
-	main.demon.hear(Vector2(main.level.door_pos.x, main.level.door_pos.z), 200.0)
+	main.hear_all(Vector2(main.level.door_pos.x, main.level.door_pos.z), 200.0)
 
 
 func _finish() -> void:

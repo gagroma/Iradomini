@@ -1,6 +1,7 @@
 extends Control
 
 const T = preload("res://scripts/tuning.gd")
+const Boons = preload("res://scripts/boons.gd")
 const UIStyle = preload("res://scripts/ui_style.gd")
 const INK := Color("#f8f8f5")
 const EDGE := Color("#221d1be8")
@@ -19,7 +20,7 @@ static var _inner := PackedVector2Array([
 	Vector2(29, 18), Vector2(22, 9), Vector2(11, 11),
 ])
 
-var _remaining := T.CHALK_MAX
+var _remaining := Boons.chalk_max()
 var _amount: Label
 var _outline := PackedVector2Array()
 var _lengths := PackedFloat32Array()
@@ -56,7 +57,7 @@ func _ready() -> void:
 
 
 func set_supply(remaining: float) -> void:
-	var available := clampf(remaining, 0.0, T.CHALK_MAX)
+	var available := clampf(remaining, 0.0, Boons.chalk_max())
 	if is_equal_approx(available, _remaining):
 		return
 	_remaining = available
@@ -69,7 +70,7 @@ func set_supply(remaining: float) -> void:
 func _draw() -> void:
 	draw_colored_polygon(_outline, TRACK)
 	draw_polyline(_outline, EDGE, 2.0)
-	var filled := _total_length * _remaining / T.CHALK_MAX
+	var filled := _total_length * _remaining / Boons.chalk_max()
 	for i in range(_lengths.size()):
 		var outside := _outer[i]
 		var inside := _inner[i]
