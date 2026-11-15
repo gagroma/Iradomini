@@ -505,13 +505,13 @@ func _begin_prayer() -> void:
 	scene.pray(self)
 
 
-# When only the last relics are left to find (2 or 1), one of the two tracks plays;
-# it fades out when the last relic is in your hands, at death and on the win screen.
+# When only the last relics are left to find (2 or 1), one of the two tracks (picked at random)
+# starts and plays on until the level is finished; it fades out on the win screen or at death.
 func _update_music(dt: float) -> void:
 	var left = T.RELICS_NEEDED - (carried + placed)
-	var want = left >= 1 and left <= T.MUSIC_RELICS_LEFT and game_state == "play" and player.alive
+	var want = left <= T.MUSIC_RELICS_LEFT and (game_state == "play" or game_state == "prayer") and player.alive
 	if want and _music == null:
-		var track = T.MUSIC_TRACKS[(level_no - 1) % T.MUSIC_TRACKS.size()]
+		var track = T.MUSIC_TRACKS.pick_random()
 		var stream = load(track)
 		if stream == null:
 			return

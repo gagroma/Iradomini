@@ -1,6 +1,6 @@
 extends Node
 # Test tool for the relic music: silent with 4 or 3 relics left, a track with 2 or 1 left,
-# fades out when the last relic is found.
+# plays on until the level is won.
 #   godot --path . res://scenes/music_test.tscn -- [--level=2]
 
 var main
@@ -28,6 +28,14 @@ func _ready() -> void:
 		var m = main._music
 		print("found %d (left %d): %s" % [found, 4 - found,
 			"silent" if m == null else "%s  %.1f dB  playing=%s" % [m.stream.resource_path.get_file(), m.volume_db, m.playing]])
+	main.carried = 0
+	main.placed = 4                          # all on the altar, prayer not read yet
+	await get_tree().create_timer(3.0).timeout
+	print("all placed: ", "silent" if main._music == null else "%.1f dB" % main._music.volume_db)
+	main.game_state = "prayer"
 	await get_tree().create_timer(2.0).timeout
-	print("after fade: ", "silent" if main._music == null else "%.1f dB" % main._music.volume_db)
+	print("praying:    ", "silent" if main._music == null else "%.1f dB" % main._music.volume_db)
+	main.show_win()
+	await get_tree().create_timer(4.0).timeout
+	print("level won:  ", "silent" if main._music == null else "%.1f dB" % main._music.volume_db)
 	get_tree().quit()

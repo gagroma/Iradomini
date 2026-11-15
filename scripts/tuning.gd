@@ -66,9 +66,9 @@ const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far 
 
 # --- Level ---
 const RELICS_NEEDED := 4
-const MUSIC_RELICS_LEFT := 2       # the music starts when this many relics (or fewer) are left to find
+const MUSIC_RELICS_LEFT := 2       # the music starts when this many relics (or fewer) are left to find, plays to the end of the level
 const MUSIC_VOLUME := -9.0         # dB
-const MUSIC_TRACKS := ["res://audio/music/dark_corridor.ogg", "res://audio/music/black_mirror.ogg"]   # odd levels / even levels (Atelier Magicae, "Ancient Horrors")
+const MUSIC_TRACKS := ["res://audio/music/dark_corridor.ogg", "res://audio/music/black_mirror.ogg"]   # one at random each level (Atelier Magicae, "Ancient Horrors")
 const LEVELS := 5
 const LEVEL_DEMONS := [1, 2, 2, 2, 2]     # demons per level: never more than two
 const LEVEL_EXTRA_ROOMS := [0, 2, 4, 6, 8]
