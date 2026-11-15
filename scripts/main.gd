@@ -73,7 +73,6 @@ var _interaction_target: Variant
 var _pause_menu: PauseMenu
 var _win: WinScreen
 var altar_busy := false
-var altar_sealed := false
 var scripted_fear := -1.0
 const PLACE_ORDER := ["cross", "chalice", "censer", "book"]
 var _intro = null
@@ -107,7 +106,6 @@ func _ready() -> void:
 	chalk.add_decor(level.altar_circle, T.CATHEDRAL_SCENARIO)
 	chalk.loop_closed.connect(_on_loop_closed)
 	chalk.stroke_burned.connect(_on_stroke_burned)
-	chalk.altar_sealed.connect(_on_altar_sealed)
 
 	player = Player.new()
 	add_child(player)
@@ -134,8 +132,6 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup()
-	if T.CATHEDRAL_SCENARIO:
-		hud.show_note("Find the altar, then seek four relics in the side passages.", 8.0)
 	_spawn_relics()
 	_pause_menu = PauseMenu.new()
 	add_child(_pause_menu)
@@ -180,6 +176,8 @@ func end_intro() -> void:
 	_intro = null
 	player.frozen = false
 	hud.show()
+	if T.CATHEDRAL_SCENARIO:
+		hud.show_note("Find the altar, then seek four relics in the side passages.", 8.0)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -195,7 +193,7 @@ func _make_environment() -> void:
 	env.fog_light_color = Color(0.02, 0.025, 0.05)
 	env.fog_density = 0.055
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-	if USE_ROOM_LEVEL:
+	if T.ROOM_LEVEL:
 		# the room levels' look: a dark purplish night (violet moon, rosy candles, purple haze)
 		env.background_color = Color(0.018, 0.006, 0.03)
 		env.ambient_light_color = Color(0.4, 0.26, 0.6)
@@ -312,7 +310,7 @@ func _find_target() -> Variant:
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
-	var can_pray = placed >= T.RELICS_NEEDED and (altar_sealed or not T.CATHEDRAL_SCENARIO)
+	var can_pray = placed >= T.RELICS_NEEDED
 	if (carried > 0 or can_pray) and pp.distance_to(level.altar_pos) < 2.7:
 		var to_altar: Vector3 = (level.altar_top - eye).normalized()
 		if forward.dot(to_altar) > INTERACTION_AIM_DOT and _can_see_target(eye, level.altar_top):
@@ -382,23 +380,13 @@ func altar_done() -> void:
 	if T.CATHEDRAL_SCENARIO:
 		level.advance_ritual(placed)
 		chalk.show_altar_progress(placed)
-		if placed == T.RELICS_NEEDED:
-			chalk.prepare_altar_gap()
-			hud.show_note("LMB  ·  Draw across the gap in the altar circle", 10.0)
-			var approach: Vector2 = level.altar_pos + Vector2(0.0, 3.8)
-			demon.hear(approach, 200.0)
-			return
-	elif placed >= T.RELICS_NEEDED:
+	if placed >= T.RELICS_NEEDED:
 		hud.show_note("All relics are in place  ·  Read the prayer", 5.0)
+		if T.CATHEDRAL_SCENARIO:
+			var front: Vector3 = level.altar_front
+			demon.hear(level.altar_pos + Vector2(front.x, front.z) * 3.8, 200.0)
 		return
 	hud.show_note("Relics on the altar  %d/%d" % [placed, T.RELICS_NEEDED])
-
-
-func _on_altar_sealed() -> void:
-	altar_sealed = true
-	sfx.play("banish", -8.0)
-	flash(0.4)
-	hud.show_note("The circle is sealed  ·  Read the prayer", 6.0)
 
 
 func _begin_prayer() -> void:

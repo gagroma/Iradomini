@@ -99,7 +99,7 @@ func plan_wings(seed_value: int, cathedral: Rect2, portals: Array[Vector2]) -> R
 	rng.seed = seed_value
 	for attempt in 41:
 		rooms.clear()
-		reserved.assign([cathedral])
+		reserved.assign([cathedral, Rect2(-10.0, 6.0, 20.0, 18.0)])
 		# Straight corridors into 4 m wide rooms fit even at adjacent cathedral bays.
 		var straight_wings := attempt == 40
 		var complete := true
@@ -123,12 +123,23 @@ func plan_wings(seed_value: int, cathedral: Rect2, portals: Array[Vector2]) -> R
 			for i in 3:
 				var tpl := "room1_normal" if rng.randf() < 0.5 else "room7_corridor_short"
 				_attach(tpl, [0, 1, 2, 3], _open_doors())
+			if not _attach_end(cathedral.get_center()):
+				continue
 			var bounds := cathedral
 			for room in rooms:
 				bounds = bounds.merge(room["rect"])
 			return bounds
 	push_error("Could not plan cathedral wings for seed %d" % seed_value)
 	return cathedral
+
+
+func _attach_end(centre: Vector2) -> bool:
+	var opens := _open_doors()
+	opens.sort_custom(func(a, b): return rooms[a.x]["doors"][a.y]["pos"].distance_to(centre) > rooms[b.x]["doors"][b.y]["pos"].distance_to(centre))
+	for o in opens:
+		if _attach("room2_end", [0, 2], [o]):
+			return true
+	return false
 
 
 func build_wings(shared_nav) -> void:
@@ -142,6 +153,7 @@ func build_wings(shared_nav) -> void:
 	_carve_and_block()
 	_light_candles(12)
 	_place_relics(true)
+	_end_room()
 
 
 # =================================================================== PLANNING

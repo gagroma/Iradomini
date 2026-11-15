@@ -46,6 +46,7 @@ bool goldish(vec3 c) {
 
 void fragment() {
 	vec2 p = vec2(UV.x, 1.0 - UV.y) * size;          // metres, y up
+	float far = smoothstep(0.25, 0.7, length(fwidth(p)) / tile);
 	float row = floor(p.y / tile);
 	p.x += mod(row, 2.0) * tile * 0.5;               // stones are laid in staggered rows
 	vec2 cell = floor(p / tile);
@@ -54,7 +55,7 @@ void fragment() {
 	float r2 = hash12(cell + seed + 17.0);
 	// stones are cut by hand: uneven gaps
 	vec2 gap = vec2(0.07 + 0.06 * r1, 0.07 + 0.06 * r2);
-	bool grout = local.x < gap.x || local.y < gap.y;
+	bool grout = (local.x < gap.x || local.y < gap.y) && far < 0.5;
 
 	vec2 centre = (cell + 0.5) * tile;
 	centre.x -= mod(row, 2.0) * tile * 0.5;
@@ -101,7 +102,7 @@ void fragment() {
 	}
 
 	// every stone is a slightly different shade
-	col *= 0.82 + 0.3 * r1;
+	col *= mix(0.82 + 0.3 * r1, 0.9, far);
 	if (grout) {
 		ALBEDO = GROUT;
 		ROUGHNESS = 1.0;
@@ -113,11 +114,11 @@ void fragment() {
 		vec3 ax = normalize(MODEL_MATRIX[0].xyz);
 		vec3 ay = normalize(MODEL_MATRIX[1].xyz);
 		vec3 tilt = ax * (r1 - 0.5) + ay * (r2 - 0.5);
-		NORMAL = normalize(NORMAL + mat3(VIEW_MATRIX) * tilt * (gold ? 0.7 : 0.25));
+		NORMAL = normalize(NORMAL + mat3(VIEW_MATRIX) * tilt * (gold ? 0.7 : 0.25) * (1.0 - far));
 		ROUGHNESS = gold ? 0.22 : 0.5;
 		METALLIC = gold ? 0.85 : 0.0;
 		SPECULAR = gold ? 0.6 : 0.4;
 		// gold leaf under glass gives back a little light even in the dark
-		EMISSION = gold ? GOLD * 0.06 * (0.6 + 0.8 * r2) : vec3(0.0);
+		EMISSION = gold ? GOLD * 0.06 * mix(0.6 + 0.8 * r2, 1.0, far) : vec3(0.0);
 	}
 }

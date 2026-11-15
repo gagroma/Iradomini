@@ -632,6 +632,8 @@ func fade_away() -> void:
 
 
 func appear_at(at: Vector2, look: Vector2) -> void:
+	visible = true
+	set_physics_process(true)
 	state = S.GONE
 	_gone_left = 99999.0
 	pos2 = at

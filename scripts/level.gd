@@ -14,6 +14,16 @@ extends Node3D
 const T = preload("res://scripts/tuning.gd")
 const Nav = preload("res://scripts/nav.gd")
 const RoomLevel = preload("res://scripts/room_level.gd")
+const Exterior = preload("res://scripts/exterior.gd")
+const DOOR = preload("res://assets/props/door.glb")
+const DOOR_FRAME = preload("res://assets/kit/wall_2m_door.glb")
+const CRATES = preload("res://assets/props/crates.glb")
+const STATUE = preload("res://assets/props/statue.glb")
+const KIT_STONE = preload("res://materials/kit/kit_stone.tres")
+const KIT_WALL = preload("res://assets/kit/wall_2m.glb")
+const PULPIT = preload("res://assets/props/pulpit.glb")
+const ROSE_SHADER = preload("res://shaders/rose_window.gdshader")
+const KIT_FLOOR = preload("res://materials/kit/kit_floor.tres")
 const Textures = preload("res://scripts/textures.gd")
 const Models = preload("res://scripts/models.gd")
 const PSX_SHADER = preload("res://shaders/psx.gdshader")
@@ -53,10 +63,17 @@ var demon_start := Vector2.ZERO
 var altar_pos := Vector2.ZERO
 var altar_top := Vector3.ZERO
 var altar_circle := PackedVector2Array()
+var altar_yaw := 0.0
+var altar_front := Vector3.BACK
+var altar_way_in := Vector2.ZERO
+var altar_way_dir := Vector2.ZERO
 var narthex_poly := PackedVector2Array()
 var crossing_rect := Rect2()
 var window_pos := Vector3.ZERO
-var door_pos := Vector3(0.0, 1.5, 5.6)
+var door_pos := Vector3(0.0, 1.5, 5.8)
+var entrance_leaf: Node3D
+var intro_crates: Node3D
+var intro_exit := Vector2(0.0, -0.3)
 
 var _mats := {}
 var _beam_mat: StandardMaterial3D
@@ -67,6 +84,7 @@ var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed
 var _time := 0.0
 var _wings
 var _altar_beacon: OmniLight3D
+var _kit_wall_mat: ShaderMaterial
 var _nave_lights: Array[SpotLight3D] = []
 
 
@@ -96,8 +114,10 @@ func build(seed_value: int, cathedral_scenario := false) -> void:
 	_build_route(_chapels)
 	_decorate()
 	if _wings != null:
+		_wall_candles()
 		_wings.build_wings(nav)
 		relic_spots = _wings.relic_spots
+		_take_altar(_wings)
 	nav.commit()
 
 
@@ -138,6 +158,17 @@ func _make_materials() -> void:
 	_mats["floor_chapel"].set_shader_parameter("style", 2)
 	_mats["floor_apse"] = _mats["floor"].duplicate()    # red and grey marble lozenges
 	_mats["floor_apse"].set_shader_parameter("style", 3)
+	if _wings != null:
+		var stone = KIT_STONE.duplicate()
+		stone.set_shader_parameter("tone_scale", 3.4)
+		_kit_wall_mat = KIT_STONE.duplicate()
+		_kit_wall_mat.set_shader_parameter("tone_scale", 3.0)
+		var flags = KIT_FLOOR.duplicate()
+		flags.set_shader_parameter("tone_scale", 2.8)
+		for key in ["wall", "stone", "plinth"]:
+			_mats[key] = stone
+		for key in ["floor", "floor_nave", "floor_inlay", "floor_chapel", "floor_apse"]:
+			_mats[key] = flags
 	_mats["wood"] = _psx(Textures.wood(rng.randi()), Color(1.0, 1.0, 1.0), 1.0)
 	_mats["cloth"] = _psx(Textures.cloth(rng.randi()), Color(1.0, 1.0, 1.0), 2.0)
 	# pews: one oak texture, three slightly different stains, like pews
@@ -224,12 +255,12 @@ func _wall_x(z: float, x0: float, x1: float, gaps: Array = [], h: float = WALL_H
 	var cur = x0
 	for g in cuts:
 		if g[0] > cur:
-			_box(Vector3((cur + g[0]) * 0.5, h * 0.5, z), Vector3(g[0] - cur, h, WALL_T), "wall")
+			_wall_piece(Vector3((cur + g[0]) * 0.5, h * 0.5, z), Vector3(g[0] - cur, h, WALL_T), true)
 			_plinth(Vector3((cur + g[0]) * 0.5, 0.0, z), Vector3(g[0] - cur, 0.0, WALL_T + 0.12))
-		_box(Vector3((g[0] + g[1]) * 0.5, 2.6 + (h - 2.6) * 0.5, z), Vector3(g[1] - g[0], h - 2.6, WALL_T), "wall", false)
+		_wall_piece(Vector3((g[0] + g[1]) * 0.5, 2.6 + (h - 2.6) * 0.5, z), Vector3(g[1] - g[0], h - 2.6, WALL_T), false)
 		cur = g[1]
 	if x1 > cur:
-		_box(Vector3((cur + x1) * 0.5, h * 0.5, z), Vector3(x1 - cur, h, WALL_T), "wall")
+		_wall_piece(Vector3((cur + x1) * 0.5, h * 0.5, z), Vector3(x1 - cur, h, WALL_T), true)
 		_plinth(Vector3((cur + x1) * 0.5, 0.0, z), Vector3(x1 - cur, 0.0, WALL_T + 0.12))
 
 
@@ -240,13 +271,40 @@ func _wall_z(x: float, z0: float, z1: float, gaps: Array = [], h: float = WALL_H
 	var cur = z0
 	for g in cuts:
 		if g[0] > cur:
-			_box(Vector3(x, h * 0.5, (cur + g[0]) * 0.5), Vector3(WALL_T, h, g[0] - cur), "wall")
+			_wall_piece(Vector3(x, h * 0.5, (cur + g[0]) * 0.5), Vector3(WALL_T, h, g[0] - cur), true)
 			_plinth(Vector3(x, 0.0, (cur + g[0]) * 0.5), Vector3(WALL_T + 0.12, 0.0, g[0] - cur))
-		_box(Vector3(x, 2.6 + (h - 2.6) * 0.5, (g[0] + g[1]) * 0.5), Vector3(WALL_T, h - 2.6, g[1] - g[0]), "wall", false)
+		_wall_piece(Vector3(x, 2.6 + (h - 2.6) * 0.5, (g[0] + g[1]) * 0.5), Vector3(WALL_T, h - 2.6, g[1] - g[0]), false)
 		cur = g[1]
 	if z1 > cur:
-		_box(Vector3(x, h * 0.5, (cur + z1) * 0.5), Vector3(WALL_T, h, z1 - cur), "wall")
+		_wall_piece(Vector3(x, h * 0.5, (cur + z1) * 0.5), Vector3(WALL_T, h, z1 - cur), true)
 		_plinth(Vector3(x, 0.0, (cur + z1) * 0.5), Vector3(WALL_T + 0.12, 0.0, z1 - cur))
+
+
+func _wall_piece(center: Vector3, size: Vector3, solid: bool) -> void:
+	if _wings == null:
+		_box(center, size, "wall", solid)
+		return
+	if solid:
+		_collider(center, size)
+	var along_x = size.x >= size.z
+	var length = size.x if along_x else size.z
+	var thick = size.z if along_x else size.x
+	var n = maxi(1, roundi(length / 2.0))
+	var rows = maxi(1, roundi(size.y / 4.5))
+	var w = length / n
+	var h = size.y / rows
+	var turn = Basis.IDENTITY if along_x else Basis(Vector3.UP, PI * 0.5)
+	var basis = turn * Basis.from_scale(Vector3(w / 2.0, h / 4.5, thick / 0.62))
+	for i in n:
+		var off = -length * 0.5 + w * (i + 0.5)
+		for r in rows:
+			var piece: Node3D = KIT_WALL.instantiate()
+			for mi in piece.find_children("*", "MeshInstance3D", true, false):
+				mi.material_override = _kit_wall_mat
+			add_child(piece)
+			var at = center + (Vector3(off, 0.0, 0.0) if along_x else Vector3(0.0, 0.0, off))
+			at.y = center.y - size.y * 0.5 + h * r
+			piece.transform = Transform3D(basis, at)
 
 
 # One oak pew (model: tools/make_pew.py). Old pews never stand perfectly
@@ -332,7 +390,8 @@ func _decorate() -> void:
 	var zm = z_end - 13.5
 	_hang(Art.mosaic(ART_DUCCIO, Vector2(6.2, 4.4), 3.2, 1.0), Vector3(-4.99, 4.3, zm), Vector3(1, 0, 0))
 	_hang(Art.mosaic(ART_MICHAEL_DRAGON, Vector2(6.2, 4.4), 3.2, 2.0), Vector3(4.99, 4.3, zm), Vector3(-1, 0, 0))
-	_hang(Art.painting(ART_RIES_MICHAEL, 1.2, 0.12, true), Vector3(0.0, 1.15 + 0.12 + 0.6, altar_pos.y - 0.38), Vector3(0, 0, 1))
+	if _wings == null:
+		_hang(Art.painting(ART_RIES_MICHAEL, 1.2, 0.12, true), Vector3(0.0, 1.15 + 0.12 + 0.6, altar_pos.y - 0.38), Vector3(0, 0, 1))
 
 
 # A candle in a brass chamberstick, standing at p (the bottom of the dish).
@@ -401,16 +460,18 @@ func _bay_center(b: int) -> float:
 
 func _build_narthex() -> void:
 	_floor(-4.0, 0.2, 4.0, 5.6)
+	_floor(-1.0, 5.6, 1.0, 6.15)
 	_carve(-3.7, 0.5, 3.7, 5.3)
-	_wall_x(5.8, -4.4, 4.4)
+	_wall_x(5.8, -4.4, -1.0)
+	_wall_x(5.8, 1.0, 4.4)
+	_wall_piece(Vector3(0.0, 4.5 + (WALL_H - 4.5) * 0.5, 5.8), Vector3(2.0, WALL_H - 4.5, WALL_T), false)
+	_entrance(Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, 0.0, 5.8)))
 	_wall_z(-4.2, 0.2, 6.0)
 	_wall_z(4.2, 0.2, 6.0)
 	# the wall between the narthex and the nave, with the doorway in it
 	_wall_x(0.0, -8.4, 8.4, [[-1.3, 1.3]])
 	_floor(-1.3, -0.2, 1.3, 0.2)
 	_carve(-1.0, -0.5, 1.0, 0.5)
-	# the big door you came in through (it will not open again)
-	_box(Vector3(0.0, 1.5, 5.62), Vector3(2.2, 3.0, 0.1), "wood", false)
 	_candle(Vector3(-3.6, 1.45, 0.5), 1.4, 4.0)
 	_candle(Vector3(3.6, 1.45, 0.5), 1.4, 4.0)
 	_box(Vector3(-3.6, 1.42, 0.5), Vector3(0.2, 0.06, 0.3), "wood", false)
@@ -421,6 +482,29 @@ func _build_narthex() -> void:
 		Vector2(-1.4, -0.5), Vector2(1.4, -0.5), Vector2(1.4, 0.0), Vector2(4.3, 0.0),
 		Vector2(4.3, 5.9), Vector2(-4.3, 5.9), Vector2(-4.3, 0.0), Vector2(-1.4, 0.0),
 	])
+
+
+func _entrance(slot: Transform3D) -> void:
+	var frame: Node3D = DOOR_FRAME.instantiate()
+	add_child(frame)
+	frame.global_transform = slot
+	var door: Node3D = DOOR.instantiate()
+	add_child(door)
+	door.global_transform = slot
+	door.get_node("DoorFrame").hide()
+	entrance_leaf = door.get_node("DoorLeaf")
+	entrance_leaf.position.x = -0.75
+	entrance_leaf.scale.x = 1.4
+	_collider(Vector3(0.0, 1.5, 5.8), Vector3(1.6, 3.0, 0.3))
+	var crates: Node3D = CRATES.instantiate()
+	add_child(crates)
+	crates.global_transform = Transform3D(Basis(Vector3.UP, PI * 0.75), Vector3(3.35, 0.0, 4.85))
+	intro_crates = crates
+	_collider(Vector3(3.35, 0.55, 4.85), Vector3(0.8, 1.1, 0.8))
+	_obstacle(2.95, 4.45, 3.75, 5.25)
+	var outside = Exterior.new()
+	add_child(outside)
+	outside.build(Vector3(0.0, 0.0, 5.8), Vector3(0.0, 0.0, 1.0), _deco.randi())
 
 
 # ------------------------------------------------------- NAVE, AISLES, CHAPELS
@@ -550,9 +634,16 @@ func _build_crossing() -> void:
 	var side = -1.0 if rng.randf() < 0.5 else 1.0
 	var px = side * 3.2
 	var pz = z_end - 1.7
-	_box(Vector3(px, 0.25, pz), Vector3(1.6, 0.5, 1.6), "wood")
-	_box(Vector3(px, 1.05, pz), Vector3(0.35, 1.1, 0.35), "wood", false)
-	_box(Vector3(px, 1.63, pz), Vector3(0.55, 0.06, 0.45), "wood", false)
+	if _wings != null:
+		var pulpit: Node3D = PULPIT.instantiate()
+		add_child(pulpit)
+		pulpit.position = Vector3(px, 0.0, pz)
+		pulpit.rotation.y = -side * PI * 0.5
+		_collider(Vector3(px, 0.6, pz), Vector3(1.5, 1.2, 1.5))
+	else:
+		_box(Vector3(px, 0.25, pz), Vector3(1.6, 0.5, 1.6), "wood")
+		_box(Vector3(px, 1.05, pz), Vector3(0.35, 1.1, 0.35), "wood", false)
+		_box(Vector3(px, 1.63, pz), Vector3(0.55, 0.06, 0.45), "wood", false)
 	_obstacle(px - 0.8, pz - 0.8, px + 0.8, pz + 0.8)
 	_moon_shaft(Vector2(px, pz), 1.3, 2.0)
 	if _wings == null:
@@ -573,6 +664,10 @@ func _build_apse() -> void:
 	_wall_x(z_back - 0.2, -5.4, 5.4, [], 9.0)
 
 	var za = z_end - 14.0
+	if _wings != null:
+		_pedestal(za)
+		_apse_window(z_back)
+		return
 	altar_pos = Vector2(0.0, za)
 	altar_top = Vector3(0.0, 1.15, za)
 	_box(Vector3(0.0, 0.55, za), Vector3(2.6, 1.1, 1.0), "stone")
@@ -581,13 +676,6 @@ func _build_apse() -> void:
 	_candle(Vector3(-1.1, 1.15, za), 1.8, 5.0, true)
 	_candle(Vector3(1.1, 1.15, za), 1.8, 5.0, true)
 	_moon_shaft(Vector2(0.0, za + 1.2), 2.2, 1.4)
-	if _wings != null:
-		_altar_beacon = OmniLight3D.new()
-		_altar_beacon.position = altar_top + Vector3(0.0, 1.4, 1.7)
-		_altar_beacon.light_color = Color(1.0, 0.70, 0.37)
-		_altar_beacon.light_energy = 3.0
-		_altar_beacon.omni_range = 11.0
-		add_child(_altar_beacon)
 
 	# the unfinished circle: a ring of radius 2.5 m with a 1.1 m gap
 	var radius = 2.5
@@ -619,6 +707,10 @@ func _build_apse() -> void:
 	claws.rotation.y = -gap_angle
 	add_child(claws)
 
+	_apse_window(z_back)
+
+
+func _apse_window(z_back: float) -> void:
 	# the rose window: glows through the fog so you always know where "north" is
 	window_pos = Vector3(0.0, 5.2, z_back + 0.05)
 	var win = MeshInstance3D.new()
@@ -632,6 +724,10 @@ func _build_apse() -> void:
 	wm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	wm.disable_fog = true
 	win.material_override = wm
+	if _wings != null:
+		var rose = ShaderMaterial.new()
+		rose.shader = ROSE_SHADER
+		win.material_override = rose
 	win.position = window_pos
 	add_child(win)
 	var glow = OmniLight3D.new()
@@ -640,6 +736,51 @@ func _build_apse() -> void:
 	glow.light_energy = 1.2
 	glow.omni_range = 9.0
 	add_child(glow)
+
+
+func _wall_candles() -> void:
+	var spots = [Vector3(-3.92, 1.8, 2.8), Vector3(3.92, 1.8, 2.8)]
+	for b in range(bays):
+		for side in [-1.0, 1.0]:
+			spots.append(Vector3(side * 7.92, 1.8, -0.2 - BAY * b - 1.2))
+	for p in spots:
+		var inward = -signf(p.x)
+		_box(p + Vector3(-inward * 0.08, -0.03, 0.0), Vector3(0.2, 0.05, 0.2), "wood", false)
+		_box(p + Vector3(-inward * 0.15, -0.2, 0.0), Vector3(0.05, 0.35, 0.05), "wood", false)
+		_candle(p, 1.7, 5.5, false, true)
+
+
+func _pedestal(za: float) -> void:
+	for i in 3:
+		var w = 3.2 - i * 0.7
+		var d = 2.2 - i * 0.45
+		_box(Vector3(0.0, 0.1 + i * 0.2, za), Vector3(w, 0.2, d), "stone", i == 0)
+	_box(Vector3(0.0, 1.05, za), Vector3(1.0, 1.1, 0.8), "stone")
+	_box(Vector3(0.0, 1.64, za), Vector3(1.2, 0.08, 1.0), "stone", false)
+	var statue: Node3D = STATUE.instantiate()
+	add_child(statue)
+	statue.position = Vector3(0.0, 1.68, za)
+	_obstacle(-1.6, za - 1.1, 1.6, za + 1.1)
+	for side in [-1.0, 1.0]:
+		_box(Vector3(side * 1.25, 0.75, za + 0.35), Vector3(0.22, 0.7, 0.22), "stone", false)
+		_candle(Vector3(side * 1.25, 1.1, za + 0.35), 1.6, 5.0, true)
+	_moon_shaft(Vector2(0.0, za + 1.2), 2.2, 1.4)
+
+
+func _take_altar(wings) -> void:
+	altar_pos = wings.altar_pos
+	altar_top = wings.altar_top
+	altar_yaw = wings.altar_yaw
+	altar_front = wings.altar_front
+	altar_way_in = wings.altar_way_in
+	altar_way_dir = wings.altar_way_dir
+	altar_circle = wings.altar_circle
+	_altar_beacon = OmniLight3D.new()
+	_altar_beacon.position = altar_top + altar_front * 1.7 + Vector3(0.0, 1.4, 0.0)
+	_altar_beacon.light_color = Color(1.0, 0.70, 0.37)
+	_altar_beacon.light_energy = 3.0
+	_altar_beacon.omni_range = 11.0
+	add_child(_altar_beacon)
 
 
 # ------------------------------------------------------------- DEMON ROUTE
@@ -689,7 +830,7 @@ func advance_ritual(placed: int) -> void:
 		for light in _nave_lights:
 			light.light_energy = 0.42
 	if placed >= 3:
-		var altar_approach := altar_pos + Vector2(0.0, 4.0)
+		var altar_approach := altar_pos + Vector2(altar_front.x, altar_front.z) * 3.0
 		if not patrol_points.has(altar_approach):
 			patrol_points.insert(6, altar_approach)
 

@@ -85,7 +85,9 @@ func _setup_crates() -> void:
 	_has_crates = true
 	var origin = crates.global_position
 	_crate_top = crates.global_transform * Vector3(0.0, 1.06, 0.0)
-	var centre = Vector3(main.level.rooms[0]["pos"].x, 0.0, main.level.rooms[0]["pos"].y)
+	var centre = main.level.player_start
+	if "rooms" in main.level:
+		centre = Vector3(main.level.rooms[0]["pos"].x, 0.0, main.level.rooms[0]["pos"].y)
 	var to_room = centre - origin
 	to_room.y = 0.0
 	to_room = to_room.normalized()
@@ -337,11 +339,15 @@ func _process(dt: float) -> void:
 
 
 func _exit_yaw() -> float:
-	for d in main.level.rooms[0]["doors"]:
-		if d["link"] >= 0 and not d["entrance"]:
-			var to = Vector3(d["pos"].x, 0.0, d["pos"].y) - player.position
-			return atan2(-to.x, -to.z)
-	return main.level.player_yaw
+	var target = main.level.get("intro_exit")
+	if "rooms" in main.level:
+		for d in main.level.rooms[0]["doors"]:
+			if d["link"] >= 0 and not d["entrance"]:
+				target = d["pos"]
+	if target == null:
+		return main.level.player_yaw
+	var to = Vector3(target.x, 0.0, target.y) - player.position
+	return atan2(-to.x, -to.z)
 
 
 func _attach_candle() -> void:

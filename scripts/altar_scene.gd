@@ -405,8 +405,7 @@ func _amen_now() -> void:
 	main.sfx.play("banish", 0.0)
 	main.sfx.play("ending", -4.0)
 	player.shake(0.5)
-	if not main.altar_sealed:
-		main.chalk.close_decor()
+	main.chalk.close_decor()
 	if _murmur != null:
 		create_tween().tween_property(_murmur, "volume_db", -60.0, 0.6)
 	create_tween().tween_property(_subs, "modulate:a", 0.0, 1.2).set_delay(1.4)
