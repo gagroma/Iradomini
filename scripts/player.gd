@@ -382,7 +382,7 @@ func shake(amount: float) -> void:
 
 # Called by the demon when its claws land.
 func take_hit(from: Vector3) -> void:
-	if not alive:
+	if not alive or in_wardrobe:        # nothing reaches you inside a wardrobe
 		return
 	shake(0.7)
 	_pinned = 0.0

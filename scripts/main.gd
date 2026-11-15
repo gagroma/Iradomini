@@ -42,6 +42,8 @@ var chalk
 var player
 var demon
 var demons := []
+var hunter = null                # the one demon that is after you right now (only one hunts at a time)
+var circle_calm := 0.0           # seconds after a circle beat a demon in which the others leave that circle alone
 var level_no := 1
 var hud
 var sfx
@@ -490,12 +492,34 @@ func on_ward_broken() -> void:
 	hud.show_note("The medallion takes the blow" + ("" if left == 0 else "  ·  %d left" % left), 4.0)
 
 
+# A noise. Only ONE demon answers it: the one already after you, or else the nearest that can hear it.
 func hear_all(at: Vector2, radius: float) -> bool:
-	var heard := false
+	var h = hunting_demon()
+	if h != null and (h.is_busy() or h.can_hear(at, radius)):
+		return h.hear(at, radius)
+	var best = null
+	var best_d := INF
 	for d in demons:
-		if d.hear(at, radius):
-			heard = true
-	return heard
+		var dist: float = d.pos2.distance_to(at)
+		if d.can_hear(at, radius) and dist < best_d:
+			best = d
+			best_d = dist
+	return best != null and best.hear(at, radius)
+
+
+# The demon that is after you right now (heard you, chasing you, pressing on your circle), or null.
+func hunting_demon():
+	if hunter != null and is_instance_valid(hunter) and hunter.is_hunting():
+		return hunter
+	return null
+
+
+# "d" takes up the hunt; whichever demon had it lets go and walks back to its own patrol.
+func claim_hunt(d) -> void:
+	var h = hunting_demon()
+	if h != null and h != d:
+		h.call_off()
+	hunter = d
 
 
 func nearest_demon():
@@ -625,6 +649,7 @@ func _process(dt: float) -> void:
 	_time += dt
 	if not intro and not candle_intro:
 		demon_grace = maxf(0.0, demon_grace - dt)
+	circle_calm = maxf(0.0, circle_calm - dt)
 
 	# GDD: effects grow from 0 to 1 with how close the demon is
 	var target_fear = 0.0

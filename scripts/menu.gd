@@ -84,7 +84,7 @@ func _start_game() -> void:
 	var title_fade := create_tween()
 	title_fade.tween_property(_title_art, "modulate:a", 0.0, 0.65)
 	await _stage.burn_circle()
-	Engine.set_meta("ira_level", 1)
+	Engine.set_meta("ira_level", preload("res://scripts/tuning.gd").start_level())
 	var transition := FlameTransition.new()
 	get_tree().root.add_child(transition)
 	transition.open_game(GAME_SCENE, _stage.last_ember_uv(), _sfx.streams.get("burn"))

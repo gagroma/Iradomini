@@ -45,6 +45,7 @@ const DEMON_INVESTIGATE_SPEED := 2.3   # GUESS
 const DEMON_CHASE_SPEED := 4.3         # GUESS (slower than your run, faster than your walk)
 const DEMON_CHASE_RADIUS := 4.0        # it chases if you are this close
 const DEMON_CHASE_RADIUS_HIDDEN := 1.5 # GUESS: ...or this close while you hide
+const DEMON_TAKEOVER_MARGIN := 2.0     # several demons: another takes the chase over only if it is this much closer to you (metres)
 const DEMON_VISION_RANGE := 11.0       # GUESS (GDD: open question)
 const DEMON_VISION_HALF_ANGLE := 35.0  # GUESS, degrees each side (GDD: open question)
 const DEMON_INVESTIGATE_WAIT := 3.0    # seconds it waits at a noise
@@ -66,7 +67,7 @@ const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far 
 # --- Level ---
 const RELICS_NEEDED := 4
 const LEVELS := 5
-const LEVEL_DEMONS := [1, 2, 3, 4, 5]
+const LEVEL_DEMONS := [1, 2, 2, 2, 2]     # demons per level: never more than two
 const LEVEL_EXTRA_ROOMS := [0, 2, 4, 6, 8]
 # true = R.E.P.O.-style level from the 7 room templates (room_level.gd);
 # false = the original hand-coded cathedral (level.gd)
@@ -105,3 +106,13 @@ const PASSAGE_RELIGHT_SCARE := 0.5         # chance (once per walk) that it stan
 # The passage between levels is played before levels 2, 3, ... (not before the first church).
 static func level_number() -> int:
 	return int(Engine.get_meta("ira_level", 1))
+
+
+# The level a new game starts on. Always 1, unless the game was started with "-- --level=N"
+# (for testing a later level without playing through the earlier ones):
+#   godot --path . -- --level=2
+static func start_level() -> int:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--level="):
+			return clampi(int(arg.substr(8)), 1, LEVELS)
+	return 1

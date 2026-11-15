@@ -44,6 +44,8 @@ var sees_player := false
 
 var _path := []                     # points still to walk through
 var _patrol_i := 0
+var _route := []                    # the patrol points that are its own (indices); with several demons each has its own stretch
+var _route_dir := 1                 # it walks its stretch to the end and back
 var _pause := 0.0
 var _look_wait := 0.0
 var _repath := 0.0
@@ -114,10 +116,20 @@ func setup(main_node, index := 0, count := 1) -> void:
 
 	_breath = main.sfx.loop_at("demon_breath", self, -4.0)
 	pos2 = main.level.demon_start
-	_patrol_i = _nearest_patrol_index()
-	if index > 0:
-		var points = main.level.patrol_points
-		_patrol_i = (_patrol_i + int(points.size() * index / float(count))) % points.size()
+	# With several demons each keeps to its own stretch of the patrol route, so they cover different
+	# parts of the church instead of walking the same path one behind the other.
+	var points = main.level.patrol_points
+	var n: int = points.size()
+	var base := _nearest_patrol_index()
+	if count > 1 and n >= count * 2:
+		for k in range(int(n * index / float(count)), int(n * (index + 1) / float(count))):
+			_route.append((base + k) % n)
+	else:
+		for k in n:
+			_route.append((base + k + int(n * index / float(count))) % n)
+	if not _route.is_empty():
+		_patrol_i = _route[0]
+	if index > 0 and n > 0:
 		pos2 = points[_patrol_i]
 	_apply_transform()
 
@@ -148,6 +160,46 @@ func distance_to_player() -> float:
 	return pos2.distance_to(main.player.pos2())
 
 
+# ONLY ONE HUNTS. With several demons in a level, one of them at a time is after you (main.hunter):
+# the one that heard or saw you. The others keep to their own patrol. Another takes the hunt over
+# only if it sees you and is clearly closer, and then the first one lets go (call_off).
+func is_hunting() -> bool:
+	return state == S.INVESTIGATE or state == S.CHASE or state == S.BLOCKED or state == S.RECOVER
+
+
+# Pressing on a circle or roaring after a strike: it is busy with you and deaf to noises.
+func is_busy() -> bool:
+	return state == S.BLOCKED or state == S.RECOVER
+
+
+func can_hear(at: Vector2, radius: float) -> bool:
+	return state != S.GONE and not is_busy() and _retreat <= 0.0 and pos2.distance_to(at) <= radius
+
+
+# Another demon has taken up the hunt: this one walks back to its own route.
+func call_off() -> void:
+	if state == S.GONE:
+		return
+	state = S.PATROL
+	_path = []
+	_windup = 0.0
+	_look_wait = 0.0
+	_pause = 0.5
+	_patrol_i = _nearest_patrol_index()
+
+
+# You shut yourself in a wardrobe while it was after you: it cannot see or reach you in there.
+# It comes to the doors, stands a while, and goes.
+func lose_player_at(at: Vector2) -> void:
+	_last_known = at
+	_windup = 0.0
+	if state == S.CHASE or state == S.INVESTIGATE:
+		state = S.INVESTIGATE
+		_investigate = at
+		_path = []
+		_look_wait = 0.0
+
+
 # ------------------------------------------------------------------ HEARING
 
 # Called for every noise: a footstep, the door, a falling candlestick.
@@ -163,6 +215,7 @@ func hear(at: Vector2, radius: float) -> bool:
 	if state == S.CHASE:
 		_lost = 0.0
 		return true
+	main.claim_hunt(self)
 	state = S.INVESTIGATE
 	_investigate = at
 	_path = []
@@ -197,6 +250,8 @@ func _sense(pp: Vector2) -> void:
 	sees_player = false
 	var p = main.player
 	if not p.alive:
+		return
+	if p.in_wardrobe:               # shut in a wardrobe: it cannot see you at all
 		return
 	if main.demon_grace > 0.0:      # the first seconds of a level: it does not notice you yet
 		return
@@ -314,16 +369,33 @@ func _path_to(target: Vector2) -> Array:
 	return main.level.nav.find_path(pos2, target, main.chalk)
 
 
+# The nearest point of its own stretch of the patrol route.
 func _nearest_patrol_index() -> int:
 	var best = 0
 	var best_d = 99999.0
 	var points = main.level.patrol_points
-	for i in range(points.size()):
+	var own: Array = _route if not _route.is_empty() else range(points.size())
+	for i in own:
 		var d = pos2.distance_to(points[i])
 		if d < best_d:
 			best_d = d
 			best = i
 	return best
+
+
+# The next point of its own stretch. A demon alone walks the whole route round and round; one of
+# several walks its stretch to the end and back.
+func _advance_patrol() -> void:
+	var k := _route.find(_patrol_i)
+	if k == -1:                      # it was drawn off its stretch: back to the nearest point of it
+		_patrol_i = _nearest_patrol_index()
+		return
+	if _route.size() == main.level.patrol_points.size():
+		_patrol_i = _route[(k + 1) % _route.size()]
+		return
+	if k + _route_dir < 0 or k + _route_dir >= _route.size():
+		_route_dir = -_route_dir
+	_patrol_i = _route[clampi(k + _route_dir, 0, _route.size() - 1)]
 
 
 # ------------------------------------------------------------------- STATES
@@ -373,13 +445,26 @@ func _physics_process(dt: float) -> void:
 
 
 func _wants_chase(reachable: bool) -> bool:
+	if not sees_player:
+		return false
 	if _retreat > 0.0:
 		# it has given up on you: only walking right into it starts a chase again
-		return sees_player and reachable and distance_to_player() < T.DEMON_RETREAT_NOTICE
-	return sees_player and (reachable or _ignore <= 0.0)
+		return reachable and distance_to_player() < T.DEMON_RETREAT_NOTICE
+	if not (reachable or _ignore <= 0.0):
+		return false
+	# a circle has just beaten another demon: this one does not come to try the same circle
+	if not reachable and main.circle_calm > 0.0:
+		return false
+	# only one hunts at a time: leave you to the one already chasing, unless this one is clearly closer
+	var h = main.hunting_demon()
+	if h != null and h != self and h.state != S.INVESTIGATE:
+		if distance_to_player() + T.DEMON_TAKEOVER_MARGIN >= h.distance_to_player():
+			return false
+	return true
 
 
 func _start_chase() -> void:
+	main.claim_hunt(self)
 	state = S.CHASE
 	_path = []
 	_repath = 0.0
@@ -402,24 +487,27 @@ func _do_patrol(dt: float, reachable: bool) -> void:
 	if _path.is_empty():
 		var target = points[_patrol_i]
 		if pos2.distance_to(target) < 0.7:
-			_patrol_i = (_patrol_i + 1) % points.size()
+			if _retreat > 0.0 and not _route.has(_patrol_i):
+				_pause = 1.0             # beaten by a circle: it waits it out at the far point it went to
+				return
+			_advance_patrol()
 			# leaving after a circle beat it: skip the patrol points near you
 			if _retreat > 0.0:
 				var pp: Vector2 = main.player.pos2()
 				for k in points.size():
 					if points[_patrol_i].distance_to(pp) >= T.DEMON_RETREAT_DISTANCE:
 						break
-					_patrol_i = (_patrol_i + 1) % points.size()
+					_advance_patrol()
 			_pause = 0.6
 			return
 		_path = _path_to(target)
 		if _path.is_empty():
-			_patrol_i = (_patrol_i + 1) % points.size()
+			_advance_patrol()
 			_pause = 0.3
 			return
 	var result = _follow(dt, T.DEMON_PATROL_SPEED)
 	if result == 2:
-		_patrol_i = (_patrol_i + 1) % points.size()
+		_advance_patrol()
 		_pause = 0.5
 
 
@@ -548,7 +636,7 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 
 
 func _strike(pp: Vector2) -> void:
-	if not main.chalk.is_separated(pos2, pp):
+	if not main.player.in_wardrobe and not main.chalk.is_separated(pos2, pp):
 		main.player.take_hit(Vector3(pos2.x, 0.0, pos2.y))
 	_attack_cd = T.DEMON_ATTACK_COOLDOWN
 	state = S.RECOVER
@@ -612,6 +700,7 @@ func _do_blocked(dt: float, pp: Vector2, reachable: bool) -> void:
 		# do not hunt or listen for you for a while, even once you step out of the circle
 		_ignore = T.DEMON_GIVE_UP_TIME
 		_retreat = T.DEMON_GIVE_UP_TIME
+		main.circle_calm = T.DEMON_GIVE_UP_TIME
 		state = S.PATROL
 		_patrol_i = _far_patrol_index(pp)
 		_path = []
