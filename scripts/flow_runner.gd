@@ -9,7 +9,7 @@ func _ready() -> void:
 	var p = tree.current_scene
 	print("1. passage loaded: ", p.scene_file_path, "  level ", p.level, "  length ", p.length, " m")
 	p._z = -p.length + 1.0                   # walk to the door
-	await tree.create_timer(4.0).timeout
+	await tree.create_timer(8.0).timeout
 	var m = tree.current_scene
 	print("2. after the door: ", m.scene_file_path, "  level meta ", Engine.get_meta("ira_level"))
 	await tree.create_timer(2.0).timeout

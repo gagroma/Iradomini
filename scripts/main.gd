@@ -46,6 +46,8 @@ var chalk
 var player
 var demon
 var demons := []
+var hunter = null                # the one demon that is after you right now (only one hunts at a time)
+var circle_calm := 0.0           # seconds after a circle beat a demon in which the others leave that circle alone
 var level_no := 1
 var hud
 var sfx
@@ -76,6 +78,7 @@ var _clatter_wait := -1.0
 var _clatter_pos := Vector3.ZERO
 var _debug := false
 var _drone = null
+var _music: AudioStreamPlayer = null   # the last relics: a track starts when only 2 are left to find
 var _choir = null
 var _circle_hint_done := false
 var _env: Environment
@@ -593,6 +596,32 @@ func _begin_prayer() -> void:
 	scene.pray(self)
 
 
+# When only the last relics are left to find (2 or 1), one of the two tracks (picked at random)
+# starts and plays on until the level is finished; it fades out on the win screen or at death.
+func _update_music(dt: float) -> void:
+	var left = T.RELICS_NEEDED - (carried + placed)
+	var want = left <= T.MUSIC_RELICS_LEFT and (game_state == "play" or game_state == "prayer") and player.alive
+	if want and _music == null:
+		var track = T.MUSIC_TRACKS.pick_random()
+		var stream = load(track)
+		if stream == null:
+			return
+		stream.loop = true
+		_music = AudioStreamPlayer.new()
+		_music.stream = stream
+		_music.volume_db = -40.0
+		add_child(_music)
+		_music.play()
+	if _music == null:
+		return
+	var target = T.MUSIC_VOLUME if want else -60.0
+	var rate = 0.6 if want else 0.8
+	_music.volume_db = move_toward(_music.volume_db, target, (40.0 if want else 30.0) * rate * dt)
+	if not want and _music.volume_db <= -59.0:
+		_music.queue_free()
+		_music = null
+
+
 func show_win() -> void:
 	game_state = "won"
 	hud.hide()
@@ -661,12 +690,34 @@ func on_weapon_switch(to: int) -> void:
 		hud.inventory.pop(to)
 
 
+# A noise. Only ONE demon answers it: the one already after you, or else the nearest that can hear it.
 func hear_all(at: Vector2, radius: float) -> bool:
-	var heard := false
+	var h = hunting_demon()
+	if h != null and (h.is_busy() or h.can_hear(at, radius)):
+		return h.hear(at, radius)
+	var best = null
+	var best_d := INF
 	for d in demons:
-		if d.hear(at, radius):
-			heard = true
-	return heard
+		var dist: float = d.pos2.distance_to(at)
+		if d.can_hear(at, radius) and dist < best_d:
+			best = d
+			best_d = dist
+	return best != null and best.hear(at, radius)
+
+
+# The demon that is after you right now (heard you, chasing you, pressing on your circle), or null.
+func hunting_demon():
+	if hunter != null and is_instance_valid(hunter) and hunter.is_hunting():
+		return hunter
+	return null
+
+
+# "d" takes up the hunt; whichever demon had it lets go and walks back to its own patrol.
+func claim_hunt(d) -> void:
+	var h = hunting_demon()
+	if h != null and h != d:
+		h.call_off()
+	hunter = d
 
 
 func nearest_demon():
@@ -805,6 +856,7 @@ func _process(dt: float) -> void:
 	_time += dt
 	if not intro and not candle_intro:
 		demon_grace = maxf(0.0, demon_grace - dt)
+	circle_calm = maxf(0.0, circle_calm - dt)
 
 	# GDD: effects grow from 0 to 1 with how close the demon is
 	var target_fear = 0.0
@@ -839,6 +891,8 @@ func _process(dt: float) -> void:
 		if _heart_wait <= 0.0:
 			_heart_wait = lerpf(1.15, 0.42, beat)
 			sfx.play("heartbeat", lerpf(-20.0, -3.0, beat), lerpf(0.9, 1.15, beat))
+
+	_update_music(dt)
 
 	# GDD: a quiet reversed choir in the crossing
 	if _choir != null:

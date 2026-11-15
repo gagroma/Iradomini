@@ -1,6 +1,9 @@
 extends Node
+# WARDROBE - hiding inside a wardrobe (E in front of one, E again to come out).
+# Getting in and out takes a few seconds and cannot be skipped: that is the risk.
+# From the moment you step inside nothing can see or hurt you. If a demon was chasing you it comes
+# to the doors, stands there a while (you watch it through the gap), and goes back to its patrol.
 
-const SkipHint = preload("res://scripts/skip_hint.gd")
 const OPEN := 1.75
 const AJAR := 0.22
 const OUTSIDE := 0.8
@@ -10,7 +13,6 @@ const PEEK_PITCH := 0.3
 var main
 var player
 var wardrobe: Node3D
-var exposed := false
 
 var _door_l: Node3D
 var _door_r: Node3D
@@ -24,7 +26,6 @@ var _yaw_from := 0.0
 var _yaw_to := 0.0
 var _open := 0.0
 var _out_yaw := 0.0
-var _hint: Node
 var _energy := 2.2
 
 
@@ -44,9 +45,6 @@ func start(main_node, w: Node3D) -> void:
 	player.frozen = true
 	player.collision_mask = 0
 	_energy = player.candle.energy
-	_hint = SkipHint.attach(self, main)
-	if _hint != null:
-		_hint.skipped.connect(_skip)
 	_go("approach")
 
 
@@ -57,9 +55,6 @@ func is_inside() -> bool:
 func leave() -> void:
 	if _phase != "hidden":
 		return
-	_hint = SkipHint.attach(self, main)
-	if _hint != null:
-		_hint.skipped.connect(_skip)
 	_set_doors(AJAR)
 	main.sfx.play_at("door_creak", wardrobe.global_position + Vector3(0, 1.2, 0), -14.0, 1.4)
 	_go("open_out")
@@ -104,6 +99,12 @@ func _physics_process(dt: float) -> void:
 				_yaw_to = _yaw_from + wrapf(_out_yaw - _yaw_from, -PI, PI)
 				if absf(_yaw_to - _yaw_from) < 2.5:
 					_yaw_to = _yaw_from + PI
+				# you step in: from now on you are out of sight and out of reach. The one that was
+				# chasing you comes to the doors to look.
+				var h = main.hunting_demon()
+				if h != null and h.awareness() == 2:
+					h.lose_player_at(Vector2(_out_point.x, _out_point.z))
+				player.in_wardrobe = true
 				_go("enter")
 		"enter":
 			var u = _ease(_t / 0.9)
@@ -120,10 +121,7 @@ func _physics_process(dt: float) -> void:
 				main.sfx.play_at("place", wardrobe.global_position + Vector3(0, 1.2, 0), -6.0, 0.55)
 				_settle_inside()
 		"hidden":
-			if exposed:
-				var ripper = _ripper()
-				if ripper != null:
-					_rip(ripper)
+			pass
 		"open_out":
 			_set_doors(lerpf(AJAR, OPEN, _ease(_t / 0.4)))
 			if _t >= 0.4:
@@ -149,13 +147,6 @@ func _settle_inside() -> void:
 	player.candle.energy = _energy * 0.3
 	player.position = _in_point
 	player.in_wardrobe = true
-	if _hint != null:
-		_hint.queue_free()
-		_hint = null
-	for d in main.demons:
-		if d.is_active() and d.sees_player:
-			exposed = true
-			d.hear(Vector2(_out_point.x, _out_point.z), 200.0)
 	_go("hidden")
 
 
@@ -165,34 +156,6 @@ func _input(event: InputEvent) -> void:
 	var sens: float = player.MOUSE_SENSITIVITY * GameSettings.mouse_sensitivity / 100.0
 	player.yaw_target = clampf(player.yaw_target - event.screen_relative.x * sens, _yaw_to - PEEK_YAW, _yaw_to + PEEK_YAW)
 	player.pitch_target = clampf(player.pitch_target - event.screen_relative.y * sens, -PEEK_PITCH, PEEK_PITCH)
-
-
-func _ripper():
-	for d in main.demons:
-		if d.is_active() and d.pos2.distance_to(Vector2(_out_point.x, _out_point.z)) < 1.4:
-			return d
-	return null
-
-
-func _rip(demon) -> void:
-	_set_doors(OPEN)
-	main.sfx.play_at("door_slam", wardrobe.global_position + Vector3(0, 1.2, 0), 0.0, 1.2)
-	demon.scream_now()
-	player.position = _out_point
-	_end(false)
-	player.take_hit(Vector3(demon.pos2.x, 0.0, demon.pos2.y))
-
-
-func _skip() -> void:
-	if _phase in ["approach", "open", "enter", "close"]:
-		player.yaw_target = player.yaw + wrapf(_out_yaw - player.yaw, -PI, PI)
-		_yaw_to = player.yaw_target
-		player.yaw = _yaw_to
-		_settle_inside()
-	elif _phase in ["open_out", "step_out", "close_out"]:
-		player.position = _out_point
-		_set_doors(0.0)
-		_end(true)
 
 
 func _end(closed: bool) -> void:

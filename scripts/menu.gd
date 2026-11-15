@@ -88,7 +88,7 @@ func _start_game() -> void:
 	var title_fade := create_tween()
 	title_fade.tween_property(_title_art, "modulate:a", 0.0, 0.65)
 	await _stage.burn_circle()
-	Engine.set_meta("ira_level", 1)
+	Engine.set_meta("ira_level", preload("res://scripts/tuning.gd").start_level())
 	for k in ["ira_gun", "ira_loaded", "ira_spare"]:
 		if Engine.has_meta(k):
 			Engine.remove_meta(k)

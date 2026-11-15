@@ -46,6 +46,7 @@ var _focus := Vector3.ZERO
 var _retry: Button
 var _retry_box: Control
 var _dim := 0.0
+var _retry_wait := 0.0       # the button only takes a press this long after it has fully appeared
 var _hint: Node
 var _start_cam: Transform3D
 var _trauma := 0.0
@@ -250,10 +251,21 @@ func _process(dt: float) -> void:
 		_dim = move_toward(_dim, 0.93, dt / 1.6)
 		if _dim > 0.55:
 			_retry_box.modulate.a = move_toward(_retry_box.modulate.a, 1.0, dt / 0.6)
-			if _retry.disabled:
-				_retry.disabled = false
-				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-				_retry.grab_focus()
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			# Someone mashing Enter to skip would otherwise press "Try Again" the instant it gets focus,
+			# and the level restarts before the death screen is ever seen. So it waits until it is fully
+			# shown, plus a moment.
+			if _retry_box.modulate.a >= 1.0:
+				_retry_wait += dt
+				if _retry.disabled and _retry_wait >= 1.0:
+					_retry.disabled = false
+					_retry.grab_focus()
+
+
+# Enter / Space held down from the skip must not press "Try Again" by repeating.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.echo and _retry != null and _retry.has_focus():
+		get_viewport().set_input_as_handled()
 
 
 func _skip() -> void:
