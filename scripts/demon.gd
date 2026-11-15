@@ -89,6 +89,10 @@ var _parts := {}
 var _material: ShaderMaterial
 var _eye_light: SpotLight3D
 var _breath = null
+var _embers: CPUParticles3D
+var _ash: CPUParticles3D
+var _burst: CPUParticles3D
+var _was_dissolving := false
 
 
 func setup(main_node, index := 0, count := 1) -> void:
@@ -99,7 +103,10 @@ func setup(main_node, index := 0, count := 1) -> void:
 	_material = model["material"]
 	add_child(_root)
 	# GDD "Vneshnii vid": barely show it - a dark shape, long arms, glowing eyes
-	_material.set_shader_parameter("brightness", 0.5)
+	_material.set_shader_parameter("brightness", 0.85)
+	_material.set_shader_parameter("skin_detail", 1.0)
+	_material.set_shader_parameter("rim_strength", 0.18)
+	_make_particles()
 
 	# Its eyes throw a red cone of light: that cone IS its field of view, so
 	# players can see where it is looking (GDD risk: "stealth feels random").
@@ -682,6 +689,74 @@ func _respawn() -> void:
 	main.on_demon_returned()
 
 
+func _make_particles() -> void:
+	_embers = _particles(36, 1.7, Vector3(0.22, 0.6, 0.18), true)
+	_embers.direction = Vector3(0, 1, 0)
+	_embers.spread = 35.0
+	_embers.initial_velocity_min = 0.25
+	_embers.initial_velocity_max = 0.7
+	_embers.gravity = Vector3(0, 0.35, 0)
+	_embers.damping_min = 0.2
+	_embers.damping_max = 0.6
+	_embers.scale_amount_min = 0.5
+	_embers.scale_amount_max = 1.2
+	_embers.color_ramp = _ramp([Color(1.0, 0.9, 0.5, 1.0), Color(1.0, 0.45, 0.12, 0.9), Color(0.6, 0.08, 0.04, 0.0)])
+	_ash = _particles(40, 2.6, Vector3(0.24, 0.65, 0.2), false)
+	_ash.direction = Vector3(0, -0.2, -1)
+	_ash.spread = 70.0
+	_ash.initial_velocity_min = 0.05
+	_ash.initial_velocity_max = 0.25
+	_ash.gravity = Vector3(0, -0.12, 0)
+	_ash.scale_amount_min = 0.6
+	_ash.scale_amount_max = 1.6
+	_ash.color_ramp = _ramp([Color(0.2, 0.15, 0.22, 0.0), Color(0.16, 0.12, 0.18, 0.75), Color(0.1, 0.08, 0.12, 0.0)])
+	_burst = _particles(90, 1.4, Vector3(0.3, 0.8, 0.25), true)
+	_burst.one_shot = true
+	_burst.explosiveness = 0.9
+	_burst.emitting = false
+	_burst.direction = Vector3(0, 1, 0)
+	_burst.spread = 180.0
+	_burst.initial_velocity_min = 0.8
+	_burst.initial_velocity_max = 2.2
+	_burst.gravity = Vector3(0, 0.6, 0)
+	_burst.damping_min = 1.0
+	_burst.damping_max = 2.0
+	_burst.color_ramp = _embers.color_ramp
+
+
+func _particles(amount: int, life: float, extents: Vector3, glowing: bool) -> CPUParticles3D:
+	var p = CPUParticles3D.new()
+	p.amount = amount
+	p.lifetime = life
+	p.local_coords = false
+	p.randomness = 0.6
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = extents
+	p.position = Vector3(0, 1.35, 0.15)
+	var quad = QuadMesh.new()
+	quad.size = Vector2(0.03, 0.03) if glowing else Vector2(0.04, 0.04)
+	var m = StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.vertex_color_use_as_albedo = true
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	if glowing:
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.disable_fog = true
+	quad.material = m
+	p.mesh = quad
+	add_child(p)
+	return p
+
+
+func _ramp(colors: Array) -> Gradient:
+	var g = Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	g.colors = PackedColorArray(colors)
+	return g
+
+
 func fade_away() -> void:
 	state = S.GONE
 	_gone_left = 99999.0
@@ -783,7 +858,15 @@ func _animate(dt: float) -> void:
 	_material.set_shader_parameter("dissolve", _dissolve)
 	var shown = _dissolve < 0.98
 	_root.visible = shown
+	var whole = _dissolve < 0.4
+	_embers.emitting = whole
+	_ash.emitting = whole
+	var dissolving = _dissolve_target > 0.5 and _dissolve < 0.5
+	if dissolving and not _was_dissolving:
+		_burst.restart()
+	_was_dissolving = dissolving
 	_parts["glow"].visible = _dissolve < 0.3
+	_parts["halo"].visible = _dissolve < 0.3
 	_eye_light.visible = _dissolve < 0.3
 	if _breath != null:
 		_breath.volume_db = -4.0 if _dissolve < 0.5 else -60.0

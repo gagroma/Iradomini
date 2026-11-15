@@ -6,10 +6,12 @@ extends RefCounted
 # x = left/right, y = up, z = forward for the demon.
 
 const SplatBuilder = preload("res://scripts/splat_builder.gd")
-const SPLAT_SHADER = preload("res://shaders/splat.gdshader")
+const SPLAT_SHADER = preload("res://shaders/solid.gdshader")
+const DEMON_BODY := "res://assets/models/demon_body.glb"
 
 # Palettes, dark to light.
 const DEMON_SKIN = ["120d18", "2e2136", "5a4460", "9c8089"]
+const DEMON_BONE = ["5e4c47", "85705f", "a8927b", "c3ad92"]
 const BONE = ["3a2c33", "8f7a6c", "d9c3a5", "f3e6c8"]
 const RAGS = ["0b0810", "1a1322", "2e2136"]
 const GOLD = ["3d2a12", "8a5a1c", "d9a53a", "ffe9a0"]
@@ -43,7 +45,7 @@ static func shared_splat_material() -> ShaderMaterial:
 	var cache = _cache()
 	if not cache.has("mat_shared"):
 		var m = new_splat_material()
-		m.set_shader_parameter("brightness", 0.8)
+		m.set_shader_parameter("brightness", 1.15)
 		cache["mat_shared"] = m
 	return cache["mat_shared"]
 
@@ -60,6 +62,17 @@ static func glow_material() -> StandardMaterial3D:
 		m.disable_fog = true
 		cache["mat_glow"] = m
 	return cache["mat_glow"]
+
+
+static func _halo_material() -> StandardMaterial3D:
+	var cache = _cache()
+	if not cache.has("mat_halo"):
+		var m = StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(0.86, 0.72, 0.32)
+		m.disable_fog = true
+		cache["mat_halo"] = m
+	return cache["mat_halo"]
 
 
 static func _instance(mesh: Mesh, material: Material) -> MeshInstance3D:
@@ -92,13 +105,16 @@ static func _wb(seed_value: int, pivot: Vector3) -> RefCounted:
 	var b = SplatBuilder.new(seed_value)
 	b.density = 3400.0
 	b.quad = 0.032
+	b.shade_noise = 0.0
+	b.layer_offset = 0.008
+	b.solid = true
 	b.set_pivot(pivot)
 	return b
 
 
 static func _build_wailer() -> Dictionary:
 	var skin = _pal(DEMON_SKIN)
-	var bone = _pal(BONE)
+	var bone = _pal(DEMON_BONE)
 	var rags = _pal(RAGS)
 	var out = {}
 
@@ -126,7 +142,6 @@ static func _build_wailer() -> Dictionary:
 	var kb = _wb(18, W_NECK)
 	kb.chain([Vector3(0, 1.95, 0.4), Vector3(0, 2.05, 0.52), Vector3(0, 2.08, 0.62)], 0.07, 0.06, skin)
 	kb.ellipsoid(Vector3(0, 2.08, 0.7), Vector3(0.16, 0.25, 0.19), skin)
-	kb.torus(Vector3(0, 2.48, 0.66), Vector3(0.12, 1, 0.1), 0.3, 0.022, 0.55, TAU, _pal(["e8d27a"]))
 	for sx in [-1.0, 1.0]:
 		kb.chain([Vector3(sx * 0.1, 2.27, 0.62), Vector3(sx * 0.2, 2.5, 0.5), Vector3(sx * 0.3, 2.62, 0.32), Vector3(sx * 0.34, 2.66, 0.14)], 0.045, 0.008, bone)
 	out["head"] = kb.build()
@@ -135,13 +150,22 @@ static func _build_wailer() -> Dictionary:
 	var g = SplatBuilder.new(12)
 	g.density = 9000.0
 	g.quad = 0.022
+	g.solid = true
 	g.set_pivot(W_NECK)
-	g.ellipsoid(Vector3(0, 2.0, 0.86), Vector3(0.085, 0.17, 0.05), _pal(EMBER))
-	g.ellipsoid(Vector3(0, 2.0, 0.885), Vector3(0.05, 0.12, 0.03), _pal(EMBER_HOT))
-	for y in [1.78, 1.72, 1.66]:
-		g.capsule(Vector3(0, y + 0.05, 0.9), Vector3(0, y - 0.12, 0.9), 0.012, 0.004, _pal(EMBER), false)
-	for sx in [-1.0, 1.0]:
-		g.ellipsoid(Vector3(sx * 0.075, 2.2, 0.85), Vector3(0.026, 0.02, 0.02), _pal(EMBER_HOT))
+	if ResourceLoader.exists(DEMON_BODY):
+		g.ellipsoid(Vector3(0, 1.99, 0.79), Vector3(0.042, 0.145, 0.02), _pal(EMBER))
+		g.ellipsoid(Vector3(0, 1.99, 0.8), Vector3(0.022, 0.1, 0.01), _pal(EMBER_HOT))
+		for d in [[-0.016, 1.85, 0.14], [0.003, 1.84, 0.2], [0.02, 1.85, 0.1]]:
+			g.capsule(Vector3(d[0], d[1] + 0.03, 0.835), Vector3(d[0] * 1.1, d[1] - d[2], 0.845), 0.006, 0.0018, _pal(EMBER), false)
+		for sx in [-1.0, 1.0]:
+			g.ellipsoid(Vector3(sx * 0.055, 2.17, 0.828), Vector3(0.012, 0.009, 0.006), _pal(EMBER_HOT))
+	else:
+		g.ellipsoid(Vector3(0, 2.0, 0.86), Vector3(0.085, 0.17, 0.05), _pal(EMBER))
+		g.ellipsoid(Vector3(0, 2.0, 0.885), Vector3(0.05, 0.12, 0.03), _pal(EMBER_HOT))
+		for y in [1.78, 1.72, 1.66]:
+			g.capsule(Vector3(0, y + 0.05, 0.9), Vector3(0, y - 0.12, 0.9), 0.012, 0.004, _pal(EMBER), false)
+		for sx in [-1.0, 1.0]:
+			g.ellipsoid(Vector3(sx * 0.075, 2.2, 0.85), Vector3(0.026, 0.02, 0.02), _pal(EMBER_HOT))
 	out["glow"] = g.build()
 
 	# --- arms: upper arm, forearm, hand of four long bone fingers ---
@@ -163,6 +187,7 @@ static func _build_wailer() -> Dictionary:
 			hd.chain([wrist, Vector3(wrist.x + sx * f[0] * 0.6, 0.36, wrist.z + f[1] * 0.7), Vector3(wrist.x + sx * f[0], 0.12, wrist.z + f[1])], 0.02, 0.006, bone)
 		out["hand" + side] = hd.build()
 
+
 	# --- legs: thigh, shin with the foot ---
 	for sx in [-1.0, 1.0]:
 		var side = "_l" if sx < 0.0 else "_r"
@@ -177,6 +202,14 @@ static func _build_wailer() -> Dictionary:
 		sh.chain([knee, ankle], 0.055, 0.04, skin)
 		sh.capsule(ankle, Vector3(sx * 0.18, 0.035, 0.2), 0.04, 0.03, skin)
 		out["shin" + side] = sh.build()
+	if ResourceLoader.exists(DEMON_BODY):
+		var body: Node3D = load(DEMON_BODY).instantiate()
+		for mi in body.find_children("*", "MeshInstance3D", true, false):
+			var key := String(mi.name)
+			if out.has(key) and key != "glow":
+				out[key] = mi.mesh
+				out["sculpted"] = true
+		body.free()
 	return out
 
 
@@ -185,10 +218,11 @@ static func _build_wailer() -> Dictionary:
 # Every part is a joint: turn it and everything below it turns too.
 static func wailer() -> Dictionary:
 	var cache = _cache()
-	if not cache.has("wailer2"):
-		cache["wailer2"] = _build_wailer()
-	var data = cache["wailer2"]
+	if not cache.has("wailer3"):
+		cache["wailer3"] = _build_wailer()
+	var data = cache["wailer3"]
 	var material = new_splat_material()
+	material.set_shader_parameter("linear_color", data.get("sculpted", false))
 	var root = Node3D.new()
 	var flip = Node3D.new()        # the shapes were modelled facing +Z; turn them around
 	flip.rotation.y = PI
@@ -206,6 +240,19 @@ static func wailer() -> Dictionary:
 	var spine = joint.call("spine", "spine", hips, W_HIP, W_HIP, material)
 	var head = joint.call("head", "head", spine, W_NECK, W_HIP, material)
 	joint.call("glow", "glow", head, W_NECK, W_NECK, glow_material())
+	var halo = MeshInstance3D.new()
+	var ring = TorusMesh.new()
+	ring.inner_radius = 0.275
+	ring.outer_radius = 0.315
+	ring.rings = 40
+	ring.ring_segments = 6
+	halo.mesh = ring
+	halo.material_override = _halo_material()
+	halo.position = Vector3(0, 2.48, 0.66) - W_NECK
+	halo.basis = Basis(Quaternion(Vector3.UP, Vector3(0.12, 1, 0.1).normalized()))
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	head.add_child(halo)
+	parts["halo"] = halo
 	for sx in [-1.0, 1.0]:
 		var side = "_l" if sx < 0.0 else "_r"
 		var m = Vector3(sx, 1, 1)
@@ -223,33 +270,46 @@ static func _small_builder(seed_value: int) -> RefCounted:
 	var b = SplatBuilder.new(seed_value)
 	b.density = 16000.0
 	b.quad = 0.016
+	b.solid = true
 	return b
 
 
 static func _build_relic(kind: String) -> ArrayMesh:
 	var b = _small_builder(kind.hash())
+	b.metal = 0.55
 	if kind == "chalice":
-		var gold = _pal(GOLD)
-		b.ellipsoid(Vector3(0, 0.02, 0), Vector3(0.07, 0.02, 0.07), gold)
-		b.capsule(Vector3(0, 0.02, 0), Vector3(0, 0.16, 0), 0.018, 0.018, gold)
-		b.ellipsoid(Vector3(0, 0.24, 0), Vector3(0.075, 0.08, 0.075), gold)
+		b.lathe(Vector3.ZERO, [Vector2(0.0, 0.0), Vector2(0.068, 0.0), Vector2(0.07, 0.008), Vector2(0.06, 0.016), Vector2(0.034, 0.03), Vector2(0.016, 0.058), Vector2(0.014, 0.1), Vector2(0.03, 0.112), Vector2(0.03, 0.124), Vector2(0.014, 0.136), Vector2(0.016, 0.168), Vector2(0.046, 0.184), Vector2(0.066, 0.215), Vector2(0.074, 0.26), Vector2(0.077, 0.3), Vector2(0.071, 0.302), Vector2(0.066, 0.262), Vector2(0.056, 0.222), Vector2(0.0, 0.2)], _pal(GOLD))
+		for k in 6:
+			var a = TAU * k / 6.0
+			b.ellipsoid(Vector3(cos(a) * 0.031, 0.118, sin(a) * 0.031), Vector3(0.008, 0.008, 0.008), _pal(RED))
 	elif kind == "cross":
 		var silver = _pal(SILVER)
-		b.ellipsoid(Vector3(0, 0.02, 0), Vector3(0.06, 0.02, 0.06), silver)
-		b.capsule(Vector3(0, 0.02, 0), Vector3(0, 0.36, 0), 0.022, 0.022, silver)
-		b.capsule(Vector3(-0.11, 0.26, 0), Vector3(0.11, 0.26, 0), 0.02, 0.02, silver)
+		b.lathe(Vector3.ZERO, [Vector2(0.0, 0.0), Vector2(0.07, 0.0), Vector2(0.07, 0.012), Vector2(0.05, 0.02), Vector2(0.05, 0.03), Vector2(0.028, 0.04), Vector2(0.0, 0.042)], silver)
+		b.box(Vector3(0, 0.2, 0), Vector3(0.032, 0.34, 0.022), silver)
+		b.box(Vector3(0, 0.27, 0), Vector3(0.2, 0.03, 0.022), silver)
+		for end in [Vector3(0, 0.37, 0), Vector3(-0.1, 0.27, 0), Vector3(0.1, 0.27, 0)]:
+			b.ellipsoid(end, Vector3(0.022, 0.022, 0.015), silver)
+		b.ellipsoid(Vector3(0, 0.27, 0.012), Vector3(0.02, 0.02, 0.008), _pal(GOLD))
 	elif kind == "censer":
 		var bronze = _pal(BRONZE)
-		b.ellipsoid(Vector3(0, 0.09, 0), Vector3(0.08, 0.07, 0.08), bronze)
-		b.ellipsoid(Vector3(0, 0.17, 0), Vector3(0.05, 0.05, 0.05), bronze)
-		b.capsule(Vector3(0, 0.2, 0), Vector3(0, 0.42, 0), 0.008, 0.008, bronze, false)
-		b.torus(Vector3(0, 0.45, 0), Vector3(0, 0, 1), 0.03, 0.008, 0.0, TAU, bronze)
-		b.ellipsoid(Vector3(0, 0.1, 0.075), Vector3(0.02, 0.02, 0.012), _pal(EMBER))
+		b.lathe(Vector3.ZERO, [Vector2(0.0, 0.0), Vector2(0.045, 0.0), Vector2(0.045, 0.012), Vector2(0.03, 0.02), Vector2(0.06, 0.04), Vector2(0.082, 0.08), Vector2(0.08, 0.11), Vector2(0.0, 0.11)], bronze)
+		b.lathe(Vector3.ZERO, [Vector2(0.0, 0.2), Vector2(0.012, 0.2), Vector2(0.03, 0.17), Vector2(0.06, 0.135), Vector2(0.08, 0.115), Vector2(0.082, 0.11), Vector2(0.0, 0.11)], bronze)
+		for k in 3:
+			var a = TAU * k / 3.0 + 0.4
+			b.capsule(Vector3(cos(a) * 0.075, 0.11, sin(a) * 0.075), Vector3(0, 0.44, 0), 0.0035, 0.0035, bronze, false)
+		b.torus(Vector3(0, 0.455, 0), Vector3(0, 0, 1), 0.018, 0.005, 0.0, TAU, bronze)
+		b.metal = 0.0
+		b.ellipsoid(Vector3(0, 0.1, 0.0), Vector3(0.05, 0.012, 0.05), _pal(EMBER))
 	else:
-		# the prayer book
-		b.box(Vector3(0, 0.016, 0), Vector3(0.115, 0.032, 0.165), _pal(RED))
-		b.box(Vector3(0, 0.033, 0.005), Vector3(0.012, 0.004, 0.075), _pal(["ffe9a0"]))
-		b.box(Vector3(0, 0.033, -0.012), Vector3(0.046, 0.004, 0.012), _pal(["ffe9a0"]))
+		b.metal = 0.0
+		var red = _pal(RED)
+		b.box(Vector3(0, 0.031, 0), Vector3(0.118, 0.006, 0.168), red)
+		b.box(Vector3(0, 0.003, 0), Vector3(0.118, 0.006, 0.168), red)
+		b.box(Vector3(-0.056, 0.017, 0), Vector3(0.008, 0.034, 0.168), red)
+		b.box(Vector3(0.002, 0.017, 0), Vector3(0.11, 0.023, 0.158), _pal(["d8ccb0", "efe6cf"]))
+		b.metal = 0.55
+		b.box(Vector3(0, 0.0345, 0.006), Vector3(0.012, 0.002, 0.08), _pal(GOLD))
+		b.box(Vector3(0, 0.0345, -0.014), Vector3(0.05, 0.002, 0.012), _pal(GOLD))
 	return b.build()
 
 

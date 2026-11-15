@@ -6,10 +6,12 @@ signal title_requested
 
 const UIStyle = preload("res://scripts/ui_style.gd")
 const SettingsPanel = preload("res://scripts/settings_panel.gd")
+const ControlsPanel = preload("res://scripts/controls_panel.gd")
 const PANEL_SIZE := Vector2(188, 150)
 
 var _actions: Control
 var _settings: SettingsPanel
+var _controls: ControlsPanel
 var _resume: Button
 var _settings_button: Button
 
@@ -42,17 +44,28 @@ func _ready() -> void:
 	center.add_child(_settings)
 	_settings.hide()
 	_settings.back_requested.connect(_close_settings)
+	_controls = ControlsPanel.new()
+	add_child(_controls)
+	_controls.back_requested.connect(func():
+		_controls.hide()
+		_settings.open()
+	)
+	_settings.controls_requested.connect(func():
+		_settings.hide()
+		_controls.open()
+	)
 
 
 func open() -> void:
 	_settings.hide()
+	_controls.hide()
 	_actions.show()
 	show()
 	_resume.grab_focus()
 
 
 func _input(event: InputEvent) -> void:
-	if not visible or not event is InputEventKey or not event.pressed or event.echo:
+	if not visible or _controls.visible or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()

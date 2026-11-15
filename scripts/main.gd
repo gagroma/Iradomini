@@ -16,6 +16,7 @@ const T = preload("res://scripts/tuning.gd")
 const Boons = preload("res://scripts/boons.gd")
 const Level = preload("res://scripts/level.gd")
 const RoomLevel = preload("res://scripts/room_level.gd")
+const PICKUP_ARCH = preload("res://shaders/pickup_arch.gdshader")
 const Chalk = preload("res://scripts/chalk.gd")
 const Player = preload("res://scripts/player.gd")
 const Demon = preload("res://scripts/demon.gd")
@@ -29,6 +30,8 @@ const AltarScene = preload("res://scripts/altar_scene.gd")
 const DeathScene = preload("res://scripts/death_scene.gd")
 const DoorIntro = preload("res://scripts/door_intro.gd")
 const Warmup = preload("res://scripts/warmup.gd")
+const PropFinish = preload("res://scripts/prop_finish.gd")
+const JournalView = preload("res://scripts/journal_view.gd")
 const WardrobeHide = preload("res://scripts/wardrobe_hide.gd")
 const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
@@ -80,6 +83,7 @@ var _pause_menu: PauseMenu
 var _win: WinScreen
 var _blessings: BlessingScreen
 var wardrobes := []
+var journal_view
 var hiding = null
 var altar_busy := false
 var scripted_fear := -1.0
@@ -110,6 +114,7 @@ func _ready() -> void:
 		level.build(_seed)
 	else:
 		level.build(_seed, T.CATHEDRAL_SCENARIO)
+	PropFinish.apply(level)
 
 	chalk = Chalk.new()
 	add_child(chalk)
@@ -149,6 +154,9 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup()
 	_spawn_relics()
+	journal_view = JournalView.new()
+	journal_view.sfx = sfx
+	add_child(journal_view)
 	for n in level.find_children("*", "Node3D", true, false):
 		if n.scene_file_path.ends_with("wardrobe.glb") and n.is_visible_in_tree():
 			wardrobes.append(n)
@@ -279,15 +287,47 @@ func _spawn_relics() -> void:
 		light.light_energy = lerpf(0.5, 0.14, level.relic_hardness)
 		light.omni_range = lerpf(2.2, 1.1, level.relic_hardness)
 		add_child(light)
+		var glow := _pickup_glow(spot["pos"])
 		relics.append({
 			"node": node,
 			"light": light,
+			"glow": glow,
 			"pos": spot["pos"],
 			"kind": spot["kind"],
 			"chapel": spot["chapel"],
 			"taken": false,
 			"placed": false,
 		})
+
+
+func _pickup_glow(at: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.position = at
+	add_child(root)
+	var seed := randf() * 7.0
+	for ring in [false, true]:
+		var mat := ShaderMaterial.new()
+		mat.shader = PICKUP_ARCH
+		mat.set_shader_parameter("floor_ring", ring)
+		mat.set_shader_parameter("seed", seed)
+		var quad := QuadMesh.new()
+		var mi := MeshInstance3D.new()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if ring:
+			quad.size = Vector2(0.8, 0.8)
+			quad.orientation = PlaneMesh.FACE_Y
+			mat.set_shader_parameter("quad_size", quad.size)
+			mat.set_shader_parameter("arch_radius", 0.3)
+			mat.set_shader_parameter("thickness", 0.02)
+			mi.position.y = 0.012
+		else:
+			quad.size = Vector2(0.8, 0.9)
+			mat.set_shader_parameter("quad_size", quad.size)
+			mi.position.y = 0.45
+		quad.material = mat
+		mi.mesh = quad
+		root.add_child(mi)
+	return root
 
 
 # ------------------------------------------------------------------- INPUT
@@ -298,6 +338,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_E:
 			_interact()
+		elif event.physical_keycode == KEY_Z and game_state == "play":
+			journal_view.open()
 		elif event.physical_keycode == KEY_R and game_state == "play":
 			_restart()
 		elif event.physical_keycode == KEY_F3:
@@ -398,6 +440,7 @@ func _take_relic(r: Dictionary) -> void:
 	r["taken"] = true
 	r["node"].visible = false
 	r["light"].visible = false
+	r["glow"].visible = false
 	carried += 1
 	# GDD: every relic you pick up makes your steps louder ("the relics whisper")
 	player.relics_found = carried + placed
@@ -473,6 +516,8 @@ func _after_win(pick := "") -> void:
 		if pick != "":
 			Boons.add(pick)
 		Engine.set_meta("ira_level", level_no + 1)
+		Engine.set_meta("ira_candle_left", player.candle.left)
+		Engine.set_meta("ira_candle_lit", player.candle.lit)
 		# the next church is down the road: walk it (scenes/passage.tscn), then the next level starts
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/passage.tscn")
@@ -546,7 +591,7 @@ func player_step(running: bool, crouching: bool) -> void:
 		volume = -30.0
 	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
 	var heard = false
-	if demon_grace <= 0.0:
+	if demon_grace <= 0.0 or running:
 		heard = hear_all(player.pos2(), radius)
 	# arcs on screen: crouch 1, walk 2, run 4, a relic or two more
 	hud.stealth.step(clampi(int(round(sqrt(radius) * 1.25)), 1, 5), heard)
@@ -698,9 +743,12 @@ func _process(dt: float) -> void:
 	# words on screen
 	hud.set_prompt(_prompt_text(_interaction_target) if playing else "")
 	hud.update_reticle(playing, player.aim_valid, _interaction_target != null, player.erase_progress, dt)
-	var words = "Level %d/%d  ·  Relics %d/%d" % [level_no, T.LEVELS, carried + placed, T.RELICS_NEEDED]
+	var words = ""
 	if player.critical:
-		words += "  ·  WOUNDED %d" % int(ceil(player.critical_time))
+		words = "WOUNDED  %d" % int(ceil(player.critical_time))
+	for r in relics:
+		hud.relics_ui.set_state(r["kind"], 2 if r["placed"] else (1 if r["taken"] else 0))
+	hud.relics_ui.visible = playing
 	if game_state != "play":
 		words = ""
 	hud.set_status(words)

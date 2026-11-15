@@ -39,7 +39,7 @@ const CANDLE_BURN_TIME := 400.0   # GUESS: seconds the candle in your hand lasts
 const CANDLE_WIND_BURN := 0.5      # GUESS: running makes it burn this much faster (0.5 = +50%)
 
 # --- Demon ---
-const DEMON_ENABLED := true            # false = the demon leaves for good (to look at the level in peace)
+const DEMON_ENABLED := false            # false = the demon leaves for good (to look at the level in peace)
 const DEMON_PATROL_SPEED := 1.5        # GUESS
 const DEMON_INVESTIGATE_SPEED := 2.3   # GUESS
 const DEMON_CHASE_SPEED := 4.3         # GUESS (slower than your run, faster than your walk)
@@ -60,7 +60,7 @@ const DEMON_ATTACK_COOLDOWN := 3.0     # GUESS
 const DEMON_LOSE_TIME := 4.0           # GUESS: seconds without seeing you before it stops chasing
 const BANISH_COOLDOWN := 40.0          # GUESS (GDD: open question)
 const RESPAWN_MIN_DISTANCE := 15.0     # GUESS: it never comes back closer than this
-const DEMON_START_GRACE := 20.0        # GUESS: seconds after you get control in which it cannot see or hear you
+const DEMON_START_GRACE := 8.0        # GUESS: seconds after you get control in which it cannot see you or hear you walk (running is always heard)
 const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far down the nave, not to your door
 
 # --- Level ---

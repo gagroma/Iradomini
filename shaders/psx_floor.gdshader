@@ -22,7 +22,7 @@ render_mode specular_schlick_ggx;
 // The floor stays darker than chalk, so circles always read.
 
 uniform vec4 tint : source_color = vec4(1.0);
-uniform vec2 snap_res = vec2(160.0, 90.0);
+uniform vec2 snap_res = vec2(3840.0, 2160.0);
 uniform int style = 0;
 uniform float aisle_half = 0.0;
 uniform bool ledgers = false;

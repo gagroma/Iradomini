@@ -4,6 +4,9 @@ const W := 0.036
 const H := 0.052
 const D := 0.013
 const LID_H := 0.017
+const FLAME_SHADER = preload("res://shaders/candle_flame.gdshader")
+const FLAME_HEIGHT := 0.036
+const FLAME_BASE := Vector3(0.004, H + 0.015, 0.0)
 const FLAME_AT := Vector3(0.004, H + 0.026, 0.0)
 
 var opened := 0.0
@@ -11,9 +14,13 @@ var burning := false
 
 var _lid: Node3D
 var _wheel: Node3D
-var _flame: MeshInstance3D
-var _flame_mat: StandardMaterial3D
+var _flame_root: Node3D
+var _flame_mat: ShaderMaterial
+var _prev := Vector3.ZERO
+var _vel := Vector3.ZERO
+var _lean := Vector2.ZERO
 var _light: OmniLight3D
+var _wax_light: OmniLight3D
 var _size := 0.0
 var _spin := 0.0
 var _time := 0.0
@@ -54,43 +61,35 @@ func _ready() -> void:
 	_lid.position = Vector3(W * 0.5, H, 0)
 	add_child(_lid)
 	_part(Vector3(W, LID_H, D), Vector3(-W * 0.5, LID_H * 0.5, 0), steel, _lid)
-	_flame_mat = StandardMaterial3D.new()
-	_flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_flame_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_flame_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	_flame_mat.albedo_color = Color(1.0, 0.62, 0.25, 0.9)
-	_flame_mat.emission_enabled = true
-	_flame_mat.emission = Color(1.0, 0.55, 0.2)
-	_flame_mat.emission_energy_multiplier = 3.0
-	_flame = MeshInstance3D.new()
-	var sphere = SphereMesh.new()
-	sphere.radius = 0.5
-	sphere.height = 1.0
-	sphere.radial_segments = 10
-	sphere.rings = 6
-	_flame.mesh = sphere
-	_flame.material_override = _flame_mat
-	_flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_flame)
-	var core = MeshInstance3D.new()
-	var cs = SphereMesh.new()
-	cs.radius = 0.5
-	cs.height = 1.0
-	cs.radial_segments = 8
-	cs.rings = 4
-	core.mesh = cs
-	var core_mat = _flame_mat.duplicate()
-	core_mat.albedo_color = Color(0.35, 0.45, 1.0, 0.8)
-	core_mat.emission = Color(0.3, 0.4, 1.0)
-	core.material_override = core_mat
-	core.scale = Vector3(0.45, 0.35, 0.45)
-	core.position = Vector3(0, -0.3, 0)
-	_flame.add_child(core)
+	_flame_root = Node3D.new()
+	_flame_root.top_level = true
+	add_child(_flame_root)
+	var box := BoxMesh.new()
+	box.size = Vector3(0.12, 0.12, 0.12)
+	var flame := MeshInstance3D.new()
+	flame.mesh = box
+	flame.position = Vector3(0.0, 0.03, 0.0)
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_flame_mat = ShaderMaterial.new()
+	_flame_mat.shader = FLAME_SHADER
+	_flame_mat.set_shader_parameter("wick_offset", Vector3(0.0, -0.03, 0.0))
+	_flame_mat.set_shader_parameter("box_half", box.size * 0.5)
+	_flame_mat.set_shader_parameter("height", FLAME_HEIGHT)
+	_flame_mat.set_shader_parameter("radius", 0.0066)
+	_flame_mat.set_shader_parameter("seed", 4.7)
+	flame.material_override = _flame_mat
+	_flame_root.add_child(flame)
 	_light = OmniLight3D.new()
 	_light.light_color = Color(1.0, 0.66, 0.34)
 	_light.omni_range = 1.6
 	_light.omni_attenuation = 1.4
 	_light.light_cull_mask = ~(1 << 19)
+	_wax_light = OmniLight3D.new()
+	_wax_light.light_color = Color(1.0, 0.66, 0.34)
+	_wax_light.omni_range = 0.8
+	_wax_light.omni_attenuation = 1.6
+	_wax_light.light_cull_mask = 1 << 19
+	add_child(_wax_light)
 	add_child(_light)
 	_noise.seed = 77
 	_noise.frequency = 0.9
@@ -128,11 +127,23 @@ func _process(dt: float) -> void:
 	_wheel.rotation.z += _spin * dt * 40.0
 	var want = 1.0 if burning and opened > 0.9 else 0.0
 	_size = move_toward(_size, want, dt * (9.0 if want > _size else 14.0))
-	var flick = 1.0 + 0.18 * _noise.get_noise_1d(_time * 14.0) + 0.08 * _noise.get_noise_1d(_time * 37.0 + 9.0)
+	var flick = 1.0 + 0.12 * _noise.get_noise_1d(_time * 14.0) + 0.05 * _noise.get_noise_1d(_time * 37.0 + 9.0)
 	var s = _size * flick
-	_flame.visible = s > 0.02
-	_flame.scale = Vector3(0.011, 0.03, 0.011) * s
-	_flame.position = FLAME_AT + Vector3(0.0015 * _noise.get_noise_1d(_time * 6.0 + 40.0), 0.0, 0.0)
+	var base: Vector3 = global_transform * FLAME_BASE
+	if dt > 0.0:
+		var v := (base - _prev) / dt
+		if v.length() < 20.0:
+			_vel = _vel.lerp(v, 1.0 - exp(-12.0 * dt))
+	_prev = base
+	_lean = _lean.lerp(Vector2(-_vel.x, -_vel.z) * 0.3, 1.0 - exp(-10.0 * dt))
+	_flame_root.global_transform = Transform3D(Basis.IDENTITY, base)
+	_flame_root.visible = s > 0.02
+	_flame_mat.set_shader_parameter("size", s)
+	_flame_mat.set_shader_parameter("lean", _lean.limit_length(1.0))
+	_flame_mat.set_shader_parameter("turbulence", 0.15 + minf(_vel.length(), 1.5) * 0.5)
 	_light.visible = s > 0.02
+	_wax_light.visible = s > 0.02
+	_wax_light.light_energy = 0.06 * s
+	_wax_light.position = FLAME_AT + Vector3(0.0, 0.04, 0.12)
 	_light.light_energy = 0.5 * s
 	_light.position = FLAME_AT + Vector3(0.0, 0.03, 0.06)

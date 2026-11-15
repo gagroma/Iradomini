@@ -14,7 +14,7 @@ uniform float flash = 0.0;    // white-gold flash (hit, banishing, ending)
 uniform float fade = 0.0;     // 1 = black screen
 uniform float hide = 0.0;     // 1 = you are hidden: the view narrows, darker and colder
 uniform float alert = 0.0;    // 1 = the demon sees you: a red edge
-uniform float levels = 32.0;  // colour steps per channel; lower = harsher banding
+uniform float levels = 128.0;  // colour steps per channel; lower = harsher banding
 
 float bayer2(vec2 a) {
 	a = floor(a);
@@ -40,7 +40,7 @@ void fragment() {
 	// film grain
 	vec2 cell = floor(FRAGCOORD.xy) + vec2(floor(TIME * 24.0) * 7.13, 0.0);
 	float n = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
-	c += (n - 0.5) * (0.01 + 0.12 * fear);
+	c += (n - 0.5) * (0.004 + 0.08 * fear);
 
 	// vignette: dark corners that close in with fear, and when you hide
 	float vig = 1.0 - smoothstep(0.10, 0.55, r2 * (1.0 + fear * 1.6 + hurt * 1.2 + hide * 1.8));

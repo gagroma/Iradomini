@@ -9,12 +9,12 @@ render_mode specular_schlick_ggx;
 //   R = ambient occlusion (dark in corners, under the seat, near the floor)
 //   G = wear (polished, lighter wood where hands and people touch it)
 
-uniform sampler2D tex : source_color, filter_nearest, repeat_enable;
+uniform sampler2D tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec4 tint : source_color = vec4(1.0);
 uniform float ao_strength = 1.0;
 uniform float wear_strength = 1.0;
 uniform float roughness = 0.72;
-uniform vec2 snap_res = vec2(160.0, 90.0);      // smaller numbers = stronger wobble
+uniform vec2 snap_res = vec2(3840.0, 2160.0);      // smaller numbers = stronger wobble
 
 void vertex() {
 	vec4 clip = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0));

@@ -46,6 +46,7 @@ func _ready() -> void:
 	_spine = parts["spine"]
 	var skin: ShaderMaterial = model["material"]
 	skin.set_shader_parameter("brightness", 0.82)
+	skin.set_shader_parameter("skin_detail", 1.0)
 	var glow: StandardMaterial3D = parts["glow"].material_override.duplicate()
 	glow.albedo_color = Color("#b15a3f")
 	parts["glow"].material_override = glow
@@ -134,7 +135,7 @@ func _build_circle() -> void:
 		var point := _circle_point(TAU * float(i) / CHALK_SEGMENTS)
 		points.append(Vector2(point.x, point.z))
 	var mesh := ImmediateMesh.new()
-	Chalk.fill_ribbon(mesh, points, true, 0.11)
+	Chalk.fill_ribbon(mesh, points, true, 0.14)
 	_chalk_material = ShaderMaterial.new()
 	_chalk_material.shader = Chalk.LINE_SHADER
 	_chalk_material.set_shader_parameter("color", CHALK_COLOR)

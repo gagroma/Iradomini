@@ -85,6 +85,7 @@ func build(seed_value: int) -> void:
 	_instance_rooms()
 	_place_intro_crates()
 	_clear_doorways_and_props()
+	_keep_passable()
 	_wall_boxes()
 	_carve_and_block()
 	_light_candles()
@@ -150,6 +151,7 @@ func build_wings(shared_nav) -> void:
 	add_child(_body)
 	_instance_rooms()
 	_clear_doorways_and_props()
+	_keep_passable()
 	_wall_boxes()
 	_carve_and_block()
 	_light_candles(12)
@@ -459,6 +461,180 @@ func _clear_doorways_and_props() -> void:
 				prop.hide()
 				continue
 			occupied.append([group, box])
+
+
+const PASS_CELL := 0.2
+const PASS_RADIUS := 0.36
+
+
+func _keep_passable() -> void:
+	var bounds: Rect2 = rooms[0]["rect"]
+	for r in rooms:
+		bounds = bounds.merge(r["rect"])
+	bounds = bounds.grow(1.0)
+	var w := int(ceil(bounds.size.x / PASS_CELL))
+	var h := int(ceil(bounds.size.y / PASS_CELL))
+	var at := func(p: Vector2) -> int:
+		var c := Vector2i(((p - bounds.position) / PASS_CELL).floor())
+		return clampi(c.x, 0, w - 1) + clampi(c.y, 0, h - 1) * w
+	var walk := PackedByteArray()
+	walk.resize(w * h)
+	var areas: Array[Rect2] = []
+	var roots: Array[Vector2] = []
+	var targets: Array[Vector2] = []
+	for r in rooms:
+		areas.append(r["rect"].grow(-0.5))
+		for d in r["doors"]:
+			if d["link"] == -1 and not d["entrance"]:
+				continue
+			targets.append(d["pos"] - d["dir"] * 0.7)
+			if d["entrance"] or d["link"] == CATHEDRAL_LINK:
+				roots.append(d["pos"] - d["dir"] * 0.7)
+			if d["own"] or d["entrance"]:
+				areas.append(_door_strip(d, 0.8, DOOR_HALF_WIDTH - PASS_RADIUS))
+	if roots.is_empty():
+		roots.append(targets[0] if not targets.is_empty() else rooms[0]["pos"])
+	for area in areas:
+		var a: int = at.call(area.position)
+		var b: int = at.call(area.end)
+		for z in range(a / w, b / w + 1):
+			for x in range(a % w, b % w + 1):
+				var c := bounds.position + (Vector2(x, z) + Vector2(0.5, 0.5)) * PASS_CELL
+				if area.has_point(c):
+					walk[x + z * w] = 1
+	var props := []
+	var blocker := PackedInt32Array()
+	blocker.resize(w * h)
+	blocker.fill(-1)
+	for r in rooms:
+		var fixed: Node = r["node"].get_node_or_null("Fixed")
+		for prop in _props_of(r["node"]):
+			var box := _world_box(prop)
+			if box.size == Vector3.ZERO or box.position.y > 0.5 or box.end.y < 0.45:
+				continue
+			var ob := _oriented_box(prop)
+			var xf: Transform3D = ob[0]
+			var half: Vector3 = ob[1] * 0.44 + Vector3.ONE * PASS_RADIUS
+			var foot: Rect2 = ob[2].grow(PASS_RADIUS)
+			var index := props.size()
+			props.append([prop, prop.get_parent() == fixed])
+			var inv := xf.affine_inverse()
+			var a: int = at.call(foot.position)
+			var b: int = at.call(foot.end)
+			for z in range(a / w, b / w + 1):
+				for x in range(a % w, b % w + 1):
+					var c := bounds.position + (Vector2(x, z) + Vector2(0.5, 0.5)) * PASS_CELL
+					var l := inv * Vector3(c.x, xf.origin.y, c.y)
+					if absf(l.x) <= half.x and absf(l.z) <= half.z and blocker[x + z * w] == -1:
+						blocker[x + z * w] = index
+	for _attempt in 8:
+		var seen := _pass_flood(walk, blocker, w, h, roots.map(func(p): return at.call(p)))
+		var goals := []
+		for t in targets:
+			var i: int = at.call(t)
+			if walk[i] and blocker[i] == -1 and not seen[i]:
+				goals.append(i)
+		for cells in _pass_pockets(walk, blocker, w, h, seen):
+			if cells.size() >= 24:
+				goals.append(cells[cells.size() / 2])
+		if goals.is_empty():
+			return
+		var cut := _pass_cut(walk, blocker, props, w, h, seen, goals)
+		if cut.is_empty():
+			return
+		for k in cut:
+			props[k][0].hide()
+			for i in w * h:
+				if blocker[i] == k:
+					blocker[i] = -1
+
+
+func _pass_flood(walk: PackedByteArray, blocker: PackedInt32Array, w: int, h: int, starts: Array) -> PackedByteArray:
+	var seen := PackedByteArray()
+	seen.resize(w * h)
+	var stack := []
+	for s in starts:
+		if walk[s] and blocker[s] == -1 and not seen[s]:
+			seen[s] = 1
+			stack.append(s)
+	while not stack.is_empty():
+		var i: int = stack.pop_back()
+		var x: int = i % w
+		for n in [i - 1 if x > 0 else -1, i + 1 if x < w - 1 else -1, i - w, i + w]:
+			if n >= 0 and n < w * h and walk[n] and blocker[n] == -1 and not seen[n]:
+				seen[n] = 1
+				stack.append(n)
+	return seen
+
+
+func _pass_pockets(walk: PackedByteArray, blocker: PackedInt32Array, w: int, h: int, seen: PackedByteArray) -> Array:
+	var mark := seen.duplicate()
+	var out := []
+	for s in w * h:
+		if mark[s] or not walk[s] or blocker[s] != -1:
+			continue
+		var cells := [s]
+		mark[s] = 1
+		var k := 0
+		while k < cells.size():
+			var i: int = cells[k]
+			k += 1
+			var x: int = i % w
+			for n in [i - 1 if x > 0 else -1, i + 1 if x < w - 1 else -1, i - w, i + w]:
+				if n >= 0 and n < w * h and walk[n] and blocker[n] == -1 and not mark[n]:
+					mark[n] = 1
+					cells.append(n)
+		out.append(cells)
+	return out
+
+
+func _pass_cut(walk: PackedByteArray, blocker: PackedInt32Array, props: Array, w: int, h: int, seen: PackedByteArray, goals: Array) -> Array:
+	var dist := PackedInt32Array()
+	dist.resize(w * h)
+	dist.fill(1 << 30)
+	var from := PackedInt32Array()
+	from.resize(w * h)
+	from.fill(-1)
+	var buckets := {0: []}
+	for i in w * h:
+		if seen[i]:
+			dist[i] = 0
+			buckets[0].append(i)
+	var left := goals.size()
+	var d := 0
+	var top := 0
+	while d <= top and left > 0:
+		var bucket: Array = buckets.get(d, [])
+		buckets.erase(d)
+		for i in bucket:
+			if dist[i] != d:
+				continue
+			if i in goals:
+				left -= 1
+			var x: int = i % w
+			for n in [i - 1 if x > 0 else -1, i + 1 if x < w - 1 else -1, i - w, i + w]:
+				if n < 0 or n >= w * h or not walk[n]:
+					continue
+				var step := 1
+				if blocker[n] >= 0:
+					step = 120 if props[blocker[n]][1] else 12
+				var nd := d + step
+				if nd < dist[n]:
+					dist[n] = nd
+					from[n] = i
+					if not buckets.has(nd):
+						buckets[nd] = []
+					buckets[nd].append(n)
+					top = maxi(top, nd)
+		d += 1
+	var cut := {}
+	for g in goals:
+		var i: int = g
+		while i >= 0 and dist[i] > 0:
+			if blocker[i] >= 0:
+				cut[blocker[i]] = true
+			i = from[i]
+	return cut.keys()
 
 
 # ------------------------------------------------------------- collision

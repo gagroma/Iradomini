@@ -7,7 +7,7 @@ shader_type spatial;
 #include "res://shaders/kit/noise.gdshaderinc"
 
 uniform int kind = 0;
-uniform float texels_per_meter = 48.0;
+uniform float texels_per_meter = 384.0;
 uniform float tone_scale = 1.0;
 uniform float bump_strength = 0.0;  // bump on snapped noise gives stripes; geometry carries the relief
 
