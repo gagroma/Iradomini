@@ -35,6 +35,10 @@ const BODY_POINTS := {
 	"shin_r": [Vector3(-0.03, -0.52, 0.0)],
 }
 const SCREAM_TIME := 1.8
+const OVERHEAD := 2.1
+const STUCK_TIME := 2.5
+const STUCK_MOVE := 0.4
+const STUCK_CALM := 10.0
 
 var main
 var state: int = S.PATROL
@@ -63,6 +67,8 @@ var _gone_left := 0.0
 var _last_known := Vector2.ZERO
 var _investigate := Vector2.ZERO
 var _notice_cd := 0.0
+var _stuck_at := Vector2.INF
+var _stuck_t := 0.0
 var _stun := 0.0
 var _stun_total := 1.0
 var _stun_push := Vector2.ZERO
@@ -383,7 +389,7 @@ func _keep_off_walls() -> void:
 	var push := Vector2.ZERO
 	for w in _body3:
 		var flat := Vector2(w.x, w.z)
-		if flat.length() < 0.2:
+		if flat.length() < 0.2 or w.y > OVERHEAD:
 			continue
 		var out := Vector3(w.x, 0.0, w.z)
 		var from := Vector3(pos2.x, maxf(w.y, 0.15), pos2.y)
@@ -398,13 +404,43 @@ func _keep_off_walls() -> void:
 		var have := maxf(0.0, push.dot(nf))
 		if have < depth:
 			push += nf * (depth - have)
-	if push == Vector2.ZERO:
+	if _moving and facing.length() > 0.1:
+		var f := facing.normalized()
+		var back := push.dot(f)
+		if back < 0.0:
+			push -= f * back
+	if push.length() < 0.001:
 		return
 	if push.length() > 0.35:
 		push = push.normalized() * 0.35
 	var target := pos2 + push
 	if main.level.nav.is_free(target) and not main.chalk.segment_blocked(pos2, target):
 		pos2 = target
+
+
+func _check_stuck(dt: float, pp: Vector2) -> void:
+	var trying := (state == S.CHASE or state == S.INVESTIGATE) and _windup <= 0.0 and _atk_t < 0.0 and pos2.distance_to(pp) > T.DEMON_ATTACK_RANGE + 0.4
+	if not trying:
+		_stuck_at = Vector2.INF
+		_stuck_t = 0.0
+		return
+	if _stuck_at == Vector2.INF or pos2.distance_to(_stuck_at) > STUCK_MOVE:
+		_stuck_at = pos2
+		_stuck_t = 0.0
+		return
+	_stuck_t += dt
+	if _stuck_t < STUCK_TIME:
+		return
+	_stuck_at = Vector2.INF
+	_stuck_t = 0.0
+	_ignore = STUCK_CALM
+	_retreat = STUCK_CALM
+	sees_player = false
+	state = S.PATROL
+	_patrol_i = _far_patrol_index(pp)
+	_path = []
+	_pause = 0.0
+	facing = -facing
 
 
 func _turn_towards(dir: Vector2, dt: float, rate: float) -> void:
@@ -523,6 +559,7 @@ func _physics_process(dt: float) -> void:
 
 	_keep_off_chalk()
 	_keep_off_walls()
+	_check_stuck(dt, pp)
 	_apply_transform()
 	_animate(dt)
 	_footsteps(dt)
