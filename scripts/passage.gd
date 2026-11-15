@@ -40,6 +40,8 @@ const HAND_RIGHT = preload("res://assets/models/hand_right.glb")
 const LighterHand = preload("res://scripts/lighter_hand.gd")
 const STALKER = preload("res://assets/models/demon_stalker.glb")
 const GAME_SCENE := "res://main.tscn"
+const CLAP_DISTANCE := 1.65
+const CLAP_HIT := 0.62
 
 const K_WALL = preload("res://assets/kit/wall_2m.glb")
 const K_WALL_W = preload("res://assets/kit/wall_2m_window.glb")
@@ -835,15 +837,23 @@ func _process(dt: float) -> void:
 		fwd.y = 0.0
 		fwd = fwd.normalized()
 		_figure.visible = true
-		_figure.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z) + fwd * 1.8
+		_figure.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z) + fwd * CLAP_DISTANCE
 		_figure.rotation.y = atan2(-fwd.x, -fwd.z)
 		_glow.position = cam.global_position + Vector3(0, 0.4, 0)
 		_animate(dt, 0.0, false, clampf(_state_t * 3.0, 0.0, 1.0))
-		_pitch = lerpf(_pitch, 0.55, 1.0 - exp(-10.0 * dt))      # your eyes go up to its face
-		_rec.pitch_scale = maxf(0.25, 0.6 - _state_t * 0.15)     # the record drags
-		if _state_t > 1.4:
-			_fade_target = 1.0
-		if _state_t > 2.5:
+		_clap_arms(_state_t)
+		var hit := _state_t >= CLAP_HIT
+		_pitch = lerpf(_pitch, 0.6 if not hit else 0.66, 1.0 - exp(-10.0 * dt))
+		_rec.pitch_scale = maxf(0.25, 0.6 - _state_t * 0.15)
+		if hit:
+			if not events.has("clap"):
+				events.append("clap")
+				sfx.play("hit", 6.0, 0.85)
+				sfx.play("door_slam", 2.0, 1.6)
+				_rec.volume_db = -80.0
+				_yaw += 0.03
+			_flash = 1.0
+		if _state_t > CLAP_HIT + 1.1:
 			get_tree().reload_current_scene()
 	if _state == "door":
 		_update_door(dt)
@@ -856,6 +866,29 @@ func _process(dt: float) -> void:
 	post.set_shader_parameter("fear", _fear)
 	post.set_shader_parameter("flash", _flash)
 	post.set_shader_parameter("fade", _fade)
+
+
+func _clap_arms(t: float) -> void:
+	var torso: Node3D = _parts.get("Torso")
+	if torso == null:
+		return
+	var head := torso.transform.affine_inverse() * Vector3(0.0, cam.global_position.y, CLAP_DISTANCE)
+	var raise := smoothstep(0.0, CLAP_HIT - 0.15, t)
+	var slam := clampf((t - (CLAP_HIT - 0.15)) / 0.15, 0.0, 1.0)
+	slam = slam * slam
+	for side in [-1.0, 1.0]:
+		var key := "Shoulder_L" if side < 0.0 else "Shoulder_R"
+		if not _parts.has(key):
+			continue
+		var p: Node3D = _parts[key]
+		var hang := p.position + Vector3(0.0, -1.74, 0.0)
+		var wide := p.position + Vector3(side * 1.25, -0.35, 0.85)
+		var ear := head + Vector3(side * 0.13, 0.0, -0.03)
+		var tip := hang.lerp(wide, raise).lerp(ear, slam)
+		if t >= CLAP_HIT:
+			tip = ear + Vector3(side * 0.01 * sin(t * 60.0), 0.0, 0.0)
+		var dir := (tip - p.position).normalized()
+		p.quaternion = Quaternion(Vector3.DOWN, dir)
 
 
 func _caught() -> void:

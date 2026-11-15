@@ -17,6 +17,7 @@ const Boons = preload("res://scripts/boons.gd")
 const Level = preload("res://scripts/level.gd")
 const RoomLevel = preload("res://scripts/room_level.gd")
 const PICKUP_ARCH = preload("res://shaders/pickup_arch.gdshader")
+const SawnOff = preload("res://scripts/sawn_off.gd")
 const Chalk = preload("res://scripts/chalk.gd")
 const Player = preload("res://scripts/player.gd")
 const Demon = preload("res://scripts/demon.gd")
@@ -55,6 +56,7 @@ var fear := 0.0                 # 0..1 from how close the demon is
 var _hide := 0.0                # 0..1 screen effect while you hide
 var _alert := 0.0               # 0..1 red edge while the demon sees you
 var relics := []                # {"node", "light", "pos", "kind", "taken", "chapel"}
+var pickups := []
 var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
 var candle_intro := false
@@ -154,9 +156,11 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup()
 	hud.inventory.player = player
-	if level_no >= 2:
-		player.give_gun(2)
+	if Engine.get_meta("ira_gun", false):
+		player.give_gun(int(Engine.get_meta("ira_loaded", 2)))
+		player.spare = int(Engine.get_meta("ira_spare", 0))
 	_spawn_relics()
+	_spawn_pickup()
 	journal_view = JournalView.new()
 	journal_view.sfx = sfx
 	add_child(journal_view)
@@ -224,9 +228,7 @@ func slam_point() -> Vector2:
 
 func end_intro() -> void:
 	intro = false
-	if not player.has_gun:
-		player.give_gun(2)
-	hud.inventory.pop(player.weapon)
+
 	demon_grace = T.DEMON_START_GRACE
 	_intro = null
 	player.frozen = false
@@ -306,6 +308,79 @@ func _spawn_relics() -> void:
 		})
 
 
+func _spawn_pickup() -> void:
+	var kind := "ammo" if player.has_gun else "gun"
+	var spot := _pickup_spot()
+	if spot == Vector3.INF:
+		return
+	var root := Node3D.new()
+	root.position = spot
+	add_child(root)
+	var mat := SawnOff.material()
+	if kind == "gun":
+		var gun: Node3D = SawnOff.GUN.instantiate()
+		for mi in gun.find_children("*", "MeshInstance3D", true, false):
+			mi.material_override = mat
+		gun.transform = Transform3D(Basis(Vector3.UP, randf() * TAU) * Basis(Vector3.DOWN, Vector3.FORWARD.cross(Vector3.DOWN), Vector3.FORWARD), Vector3(0.0, 0.0245, 0.0))
+		root.add_child(gun)
+	else:
+		for i in 2:
+			var sh := SawnOff.make_shell(mat)
+			sh.transform = Transform3D(Basis(Vector3.UP, 0.6 + i * 0.9) * Basis(Vector3.RIGHT, PI * 0.5), Vector3(-0.03 + i * 0.05, 0.0105, 0.02 * i))
+			root.add_child(sh)
+	var light := OmniLight3D.new()
+	light.position = spot + Vector3(0.0, 0.3, 0.0)
+	light.light_color = Color(1.0, 0.85, 0.5)
+	light.light_energy = 0.4
+	light.omni_range = 1.8
+	add_child(light)
+	pickups.append({"node": root, "light": light, "glow": _pickup_glow(spot), "pos": spot, "kind": kind, "taken": false})
+
+
+func _pickup_spot() -> Vector3:
+	var start := Vector2(level.player_start.x, level.player_start.z)
+	var options := []
+	for p in level.patrol_points:
+		var q: Vector2 = p
+		if q.distance_to(start) < 9.0:
+			continue
+		var near_relic := false
+		for r in relics:
+			if Vector2(r["pos"].x, r["pos"].z).distance_to(q) < 3.0:
+				near_relic = true
+		if near_relic or not level.nav.is_free(q):
+			continue
+		var clear := true
+		for k in 8:
+			if not level.nav.is_free(q + Vector2.from_angle(k * TAU / 8.0) * 0.45):
+				clear = false
+		if clear:
+			options.append(q)
+	if options.is_empty():
+		return Vector3.INF
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed + level_no * 31
+	var q: Vector2 = options[rng.randi_range(0, options.size() - 1)]
+	return Vector3(q.x, 0.0, q.y)
+
+
+func _take_pickup(p: Dictionary) -> void:
+	p["taken"] = true
+	p["node"].visible = false
+	p["light"].visible = false
+	p["glow"].visible = false
+	sfx.play("pickup", -6.0, 0.8)
+	if p["kind"] == "gun":
+		player.give_gun(2)
+		player.spare = 0
+		hud.show_note("Sawn-off  ·  two shells  ·  Mouse wheel to draw it", 5.0)
+		hud.inventory.pop(player.weapon)
+	else:
+		player.spare += 2
+		sfx.play("shell_in", -10.0, 1.2)
+		hud.show_note("Shells  +2  ·  R to reload", 4.0)
+
+
 func _pickup_glow(at: Vector3) -> Node3D:
 	var root := Node3D.new()
 	root.position = at
@@ -346,8 +421,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			_interact()
 		elif event.physical_keycode == KEY_Z and game_state == "play":
 			journal_view.open()
-		elif event.physical_keycode == KEY_R and game_state == "play":
-			_restart()
 		elif event.physical_keycode == KEY_F3:
 			_debug = not _debug
 		elif event.physical_keycode == KEY_F4:
@@ -401,6 +474,13 @@ func _find_target() -> Variant:
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
+	for p in pickups:
+		if p["taken"]:
+			continue
+		var flat = Vector2(p["pos"].x, p["pos"].z).distance_to(pp)
+		var to = (p["pos"] - eye).normalized()
+		if flat < 2.3 and forward.dot(to) > INTERACTION_AIM_DOT and _can_see_target(eye, p["pos"]):
+			return {"type": "pickup", "p": p}
 	for w in wardrobes:
 		var front: Vector3 = w.global_basis.z
 		var door = w.global_position + Vector3(front.x, 0.0, front.z).normalized() * 0.45
@@ -432,6 +512,8 @@ func _interact() -> void:
 	_interaction_target = null
 	if target["type"] == "relic":
 		_take_relic(target["relic"])
+	elif target["type"] == "pickup":
+		_take_pickup(target["p"])
 	elif target["type"] == "altar":
 		_place_next()
 	elif target["type"] == "wardrobe":
@@ -527,12 +609,16 @@ func _after_win(pick := "") -> void:
 		Engine.set_meta("ira_level", level_no + 1)
 		Engine.set_meta("ira_candle_left", player.candle.left)
 		Engine.set_meta("ira_candle_lit", player.candle.lit)
+		Engine.set_meta("ira_gun", player.has_gun)
+		Engine.set_meta("ira_loaded", player.shells)
+		Engine.set_meta("ira_spare", player.spare)
 		# the next church is down the road: walk it (scenes/passage.tscn), then the next level starts
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/passage.tscn")
 	else:
 		Boons.clear()
 		Engine.set_meta("ira_level", 1)
+		clear_loadout()
 		_restart()
 
 
@@ -607,6 +693,8 @@ func _prompt_text(target: Variant) -> String:
 			return "E  ·  Hide in the wardrobe"
 		if target["type"] == "relic":
 			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
+		if target["type"] == "pickup":
+			return "E  ·  Take the sawn-off" if target["p"]["kind"] == "gun" else "E  ·  Take the shells"
 		if target["type"] == "pray":
 			return "E  ·  Read the prayer"
 		var next = _next_relic()
@@ -684,6 +772,12 @@ func _on_stroke_burned() -> void:
 
 # ------------------------------------------------------------------ ENDING
 
+static func clear_loadout() -> void:
+	for k in ["ira_gun", "ira_loaded", "ira_spare"]:
+		if Engine.has_meta(k):
+			Engine.remove_meta(k)
+
+
 func _restart(new_seed := true) -> void:
 	if new_seed:
 		Engine.set_meta("ira_seed", randi())
@@ -699,6 +793,7 @@ func _return_to_title() -> void:
 		Engine.remove_meta("ira_seed")
 		if Engine.has_meta("ira_level"):
 			Engine.remove_meta("ira_level")
+		clear_loadout()
 		Boons.clear()
 	else:
 		push_error("Could not return to the title (%s)." % error_string(result))

@@ -72,7 +72,6 @@ var crossing_rect := Rect2()
 var door_pos := Vector3(0.0, 1.5, 5.8)
 var entrance_leaf: Node3D
 var intro_crates: Node3D
-var intro_gun_table: Node3D
 var intro_exit := Vector2(0.0, -0.3)
 
 var _mats := {}
@@ -603,12 +602,6 @@ func _entrance(slot: Transform3D) -> void:
 	intro_crates = crates
 	_collider(Vector3(3.35, 0.55, 4.85), Vector3(0.8, 1.1, 0.8))
 	_obstacle(2.95, 4.45, 3.75, 5.25)
-	var table: Node3D = load("res://assets/props/chalktable.glb").instantiate()
-	add_child(table)
-	table.global_transform = Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(-3.84, 0.0, 3.3))
-	intro_gun_table = table
-	_collider(Vector3(-3.84, 0.45, 3.3), Vector3(0.5, 0.9, 0.8))
-	_obstacle(-4.1, 2.9, -3.58, 3.7)
 	_outside = Exterior.new()
 	add_child(_outside)
 	_outside.build(Vector3(0.0, 0.0, 5.8), Vector3(0.0, 0.0, 1.0), _deco.randi())

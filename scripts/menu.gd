@@ -89,6 +89,9 @@ func _start_game() -> void:
 	title_fade.tween_property(_title_art, "modulate:a", 0.0, 0.65)
 	await _stage.burn_circle()
 	Engine.set_meta("ira_level", 1)
+	for k in ["ira_gun", "ira_loaded", "ira_spare"]:
+		if Engine.has_meta(k):
+			Engine.remove_meta(k)
 	var transition := FlameTransition.new()
 	get_tree().root.add_child(transition)
 	transition.open_game(GAME_SCENE, _stage.last_ember_uv(), _sfx.streams.get("burn"))

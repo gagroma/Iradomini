@@ -24,6 +24,11 @@ const GUN_POSE := Vector3(0.2, -0.205, -0.36)
 const GUN_POSE_ROT := Vector3(0.02, 0.06, 0.0)
 const GUN_IN_HAND := Vector3(0.0, 0.006, -0.06)
 const GUN_IN_HAND_ROT := Vector3(0.0, 0.0, 0.0)
+const OPEN_POSE := Vector3(0.09, -0.16, -0.32)
+const OPEN_POSE_ROT := Vector3(0.38, 0.6, -0.3)
+const POCKET_POSE := Vector3(0.3, -0.6, 0.02)
+const POCKET_POSE_ROT := Vector3(-0.4, 0.3, 0.6)
+const RELOAD_TIME := 2.6
 # where the right hand rests (it holds the chalk at its back end, tip forward)
 const RIGHT_REST := Vector3(0.2, -0.15, -0.33)
 const RIGHT_REST_ROT := Vector3(-0.5, 0.3, 0.0)
@@ -85,6 +90,15 @@ var _lower := 0.0
 var _recoil := 0.0
 var _fire_cd := 0.0
 var _lmb_was := false
+var spare := 0
+var _reload_t := -1.0
+var _reload_queued := false
+var _reload_n := 0
+var _load_count := 0
+var _eject_n := 0
+var _hold := Transform3D.IDENTITY
+var _hand_shell: Node3D
+var _hulls := []
 
 var _time := 0.0
 var _bob := 0.0
@@ -167,7 +181,129 @@ func give_gun(loaded: int) -> void:
 	gun.set_loaded(2)
 
 
+func reloading() -> bool:
+	return _reload_t >= 0.0
+
+
+func reload() -> void:
+	if not has_gun or reloading() or not alive or frozen or right_override != null:
+		return
+	if spare <= 0 or shells >= 2:
+		return
+	if weapon != 1 or _switching():
+		_reload_queued = true
+		switch_weapon(1)
+		return
+	_reload_t = 0.0
+	_reload_n = mini(2 - shells, spare)
+	_load_count = _reload_n
+	_eject_n = 2 - shells
+	_hold = _open_pose() * gun_in_hand()
+	main.sfx.play("gun_break", -6.0)
+
+
+func _open_pose() -> Transform3D:
+	return Transform3D(Basis.from_euler(OPEN_POSE_ROT), OPEN_POSE)
+
+
+func _pocket_pose() -> Transform3D:
+	return Transform3D(Basis.from_euler(POCKET_POSE_ROT), POCKET_POSE)
+
+
+func _chamber_in_hands(i: int) -> Transform3D:
+	var hold_world := hands.global_transform * _hold
+	var ch: Node3D = gun.chambers[i]
+	var local_in_gun: Transform3D = gun.global_transform.affine_inverse() * ch.global_transform
+	return hands.global_transform.affine_inverse() * (hold_world * local_in_gun)
+
+
+func _update_reload(dt: float) -> Variant:
+	_reload_t += dt
+	var t := _reload_t
+	var aim := gun_pose()
+	var open := _open_pose()
+	var pose: Transform3D
+	var gun_free := false
+	if t < 0.35:
+		var u := smoothstep(0.0, 1.0, t / 0.3)
+		pose = aim.interpolate_with(open, u)
+		gun.open = smoothstep(0.05, 0.3, t)
+		if t >= 0.22 and _eject_n > 0:
+			var flick := sin(PI * clampf((t - 0.22) / 0.13, 0.0, 1.0))
+			pose = Transform3D(pose.basis * Basis(Vector3.RIGHT, 0.5 * flick), pose.origin + Vector3(0, 0.03, 0.02) * flick)
+			if t >= 0.27 and _hulls.is_empty():
+				gun.set_loaded(2)
+				_hulls = gun.eject(main, _eject_n)
+				for i in range(_eject_n, 2):
+					gun.chambers[i].visible = true
+				_eject_n = -_eject_n
+	elif t < 0.85:
+		gun_free = true
+		pose = open.interpolate_with(_pocket_pose(), smoothstep(0.0, 1.0, (t - 0.35) / 0.5))
+		if t >= 0.7 and _hand_shell == null:
+			main.sfx.play("pickup", -18.0, 1.6)
+	elif t < 0.85 + 0.5 * _load_count:
+		gun_free = true
+		var k := int((t - 0.85) / 0.5)
+		var lt := (t - 0.85) - k * 0.5
+		var ch := _chamber_in_hands(k)
+		var mouth := Transform3D(ch.basis, ch.origin + ch.basis.z.normalized() * 0.09)
+		var shell_xf: Transform3D
+		if lt < 0.3:
+			var from := _pocket_pose() * Transform3D(Basis.from_euler(Vector3(-1.2, 0.0, 0.0)), FINGERTIPS)
+			if k > 0:
+				from = Transform3D(mouth.basis, mouth.origin + Vector3(0.04, -0.1, 0.06))
+			shell_xf = from.interpolate_with(mouth, smoothstep(0.0, 1.0, lt / 0.3))
+		else:
+			shell_xf = mouth.interpolate_with(ch, smoothstep(0.0, 1.0, (lt - 0.3) / 0.12))
+		if _hand_shell == null:
+			_hand_shell = gun.make_shell(gun.material())
+			hands.add_child(_hand_shell)
+		_hand_shell.visible = true
+		_hand_shell.transform = shell_xf
+		pose = right_hand_at(shell_xf.origin + shell_xf.basis.z.normalized() * 0.004)
+		if lt >= 0.42 and not gun.chambers[k].visible:
+			gun.chambers[k].visible = true
+			_hand_shell.visible = false
+			main.sfx.play("shell_in", -4.0)
+	else:
+		var t2 := t - (0.85 + 0.5 * _load_count)
+		if _hand_shell != null:
+			_hand_shell.queue_free()
+			_hand_shell = null
+		if t2 < 0.3:
+			gun_free = true
+			pose = right_hand_at(_chamber_in_hands(maxi(_load_count - 1, 0)).origin).interpolate_with(open, smoothstep(0.0, 1.0, t2 / 0.3))
+		elif t2 < 0.55:
+			var snap := clampf((t2 - 0.32) / 0.08, 0.0, 1.0)
+			gun.open = 1.0 - snap
+			var jolt := sin(PI * clampf((t2 - 0.34) / 0.18, 0.0, 1.0))
+			pose = Transform3D(open.basis * Basis(Vector3.RIGHT, -0.35 * jolt), open.origin + Vector3(0, 0.025, -0.015) * jolt)
+			if snap > 0.0 and _reload_n > 0:
+				main.sfx.play("gun_close", -4.0)
+				shells += _reload_n
+				spare -= _reload_n
+				_reload_n = 0
+		else:
+			pose = open.interpolate_with(aim, smoothstep(0.0, 1.0, (t2 - 0.55) / 0.3))
+			if t2 >= 0.85:
+				_reload_t = -1.0
+				_hulls_done()
+	right_hand.transform = pose
+	if gun_free:
+		gun.transform = pose.affine_inverse() * _hold
+	else:
+		gun.transform = gun_in_hand()
+	return pose
+
+
+func _hulls_done() -> void:
+	_eject_n = 0
+
+
 func switch_weapon(to: int) -> void:
+	if reloading():
+		return
 	if not has_gun or to == _switch_to or not alive or frozen or right_override != null:
 		return
 	_switch_to = to
@@ -175,6 +311,15 @@ func switch_weapon(to: int) -> void:
 
 
 func holster() -> void:
+	if reloading():
+		_reload_t = -1.0
+		gun.open = 0.0
+		shells += _reload_n
+		spare -= _reload_n
+		_reload_n = 0
+		if _hand_shell != null:
+			_hand_shell.queue_free()
+			_hand_shell = null
 	weapon = 0
 	_switch_to = 0
 	_lower = 0.0
@@ -222,7 +367,9 @@ func _input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			switch_weapon(1 - _switch_to)
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_1:
+		if event.physical_keycode == KEY_R:
+			reload()
+		elif event.physical_keycode == KEY_1:
 			switch_weapon(0)
 		elif event.physical_keycode == KEY_2:
 			switch_weapon(1)
@@ -317,6 +464,14 @@ func _physics_process(dt: float) -> void:
 			critical = false
 
 	_fire_cd = maxf(0.0, _fire_cd - dt)
+	var flying := []
+	for h in _hulls:
+		if is_instance_valid(h) and gun.fly(h, dt, main.sfx):
+			flying.append(h)
+	_hulls = flying
+	if _reload_queued and weapon == 1 and not _switching():
+		_reload_queued = false
+		reload()
 	_recoil = move_toward(_recoil, 0.0, dt * 3.2)
 	if _switch_to != weapon:
 		_lower = move_toward(_lower, 1.0, dt / 0.2)
@@ -385,6 +540,9 @@ func _update_right_hand(dt: float) -> void:
 		gun.transform = gun_in_hand()
 	chalk_stick.visible = weapon == 0
 	var low := Vector3(0.05, -0.34, 0.14) * smoothstep(0.0, 1.0, _lower)
+	if weapon == 1 and reloading():
+		_update_reload(dt)
+		return
 	if weapon == 1:
 		var r := _recoil * _recoil
 		var pose := gun_pose()
@@ -434,7 +592,7 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 		rubbing = false
 		erase_progress = 0.0
 		main.chalk.erase_cancel()
-		if weapon == 1 and not _switching() and lmb and not _lmb_was:
+		if weapon == 1 and not _switching() and not reloading() and lmb and not _lmb_was:
 			_fire()
 		_lmb_was = lmb
 		return

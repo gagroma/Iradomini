@@ -64,6 +64,8 @@ func _draw_ammo_corner() -> void:
 	var base := Vector2(452, 246)
 	for k in 2:
 		_shell_icon(base + Vector2(k * 8, 0), k < player.shells, 1.0, 1.4)
+	if player.spare > 0:
+		_text("+%d" % player.spare, Vector2(base.x - 4, base.y + 9), 8, Color(ASH, 0.9), false, true)
 
 
 func _text(s: String, at: Vector2, size: int, col: Color, centre: bool, right := false) -> void:

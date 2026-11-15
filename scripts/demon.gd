@@ -79,6 +79,7 @@ var _twitch_target := Vector3.ZERO
 var _twitch_wait := 2.0
 var _wp_best := 99999.0             # progress towards the current path point
 var _body := PackedVector2Array()   # where the body points are, from where it stands (x, z)
+var _body3 := PackedVector3Array()
 var _reach := 1.0                   # the furthest of them
 var _wp_stuck := 0.0
 var _dissolve := 0.0
@@ -320,6 +321,37 @@ func _keep_off_chalk() -> void:
 		pos2 = push
 
 
+func _keep_off_walls() -> void:
+	if _body3.is_empty() or not visible:
+		return
+	var space := get_world_3d().direct_space_state
+	var push := Vector2.ZERO
+	for w in _body3:
+		var flat := Vector2(w.x, w.z)
+		if flat.length() < 0.2:
+			continue
+		var out := Vector3(w.x, 0.0, w.z)
+		var from := Vector3(pos2.x, maxf(w.y, 0.15), pos2.y)
+		var to := from + out + out.normalized() * 0.06
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1))
+		if hit.is_empty():
+			continue
+		var depth: float = (to - hit["position"]).length()
+		var n: Vector3 = hit["normal"]
+		var nf := Vector2(n.x, n.z)
+		nf = nf.normalized() if nf.length() > 0.3 else -flat.normalized()
+		var have := maxf(0.0, push.dot(nf))
+		if have < depth:
+			push += nf * (depth - have)
+	if push == Vector2.ZERO:
+		return
+	if push.length() > 0.35:
+		push = push.normalized() * 0.35
+	var target := pos2 + push
+	if main.level.nav.is_free(target) and not main.chalk.segment_blocked(pos2, target):
+		pos2 = target
+
+
 func _turn_towards(dir: Vector2, dt: float, rate: float) -> void:
 	if dir.length() < 0.001:
 		return
@@ -392,6 +424,7 @@ func _physics_process(dt: float) -> void:
 			if main.level.nav.is_free(pos2 + step):
 				pos2 += step
 		_keep_off_chalk()
+		_keep_off_walls()
 		_apply_transform()
 		_animate(dt)
 		if _stun <= 0.0:
@@ -417,6 +450,7 @@ func _physics_process(dt: float) -> void:
 		_do_recover(dt, pp)
 
 	_keep_off_chalk()
+	_keep_off_walls()
 	_apply_transform()
 	_animate(dt)
 	_footsteps(dt)
@@ -1071,6 +1105,7 @@ func _animate(dt: float) -> void:
 # Where the body really is in this pose, for keeping it off chalk lines.
 func _measure_body() -> void:
 	_body = PackedVector2Array()
+	_body3 = PackedVector3Array()
 	_reach = MIN_CLEAR
 	var here = Vector3(pos2.x, 0.0, pos2.y)
 	for key in BODY_POINTS.keys():
@@ -1078,6 +1113,7 @@ func _measure_body() -> void:
 		var xf = part.global_transform
 		for p in BODY_POINTS[key]:
 			var w = xf * p - here
+			_body3.append(w)
 			var flat = Vector2(w.x, w.z)
 			_body.append(flat)
 			_reach = maxf(_reach, flat.length())

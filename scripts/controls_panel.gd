@@ -32,7 +32,7 @@ const RIGHT := [
 	]],
 	["System", [
 		["Pause", ["Esc"], false],
-		["Restart level", ["R"], false],
+		["Reload the sawn-off", ["R"], false],
 		["Fullscreen", ["F11"], false],
 	]],
 ]
