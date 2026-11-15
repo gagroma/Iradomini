@@ -49,6 +49,10 @@ const DEMON_VISION_RANGE := 11.0       # GUESS (GDD: open question)
 const DEMON_VISION_HALF_ANGLE := 35.0  # GUESS, degrees each side (GDD: open question)
 const DEMON_INVESTIGATE_WAIT := 3.0    # seconds it waits at a noise
 const DEMON_BLOCKED_TIME := 5.0        # GUESS: seconds it screams at a line before leaving
+const DEMON_GIVE_UP_TIME := 25.0       # GUESS: after a circle beats it, it leaves and ignores you this long
+const DEMON_SHIELD_RANGE := 7.0        # GUESS: sees you in a circle this close: goes straight to the line, no circling
+const DEMON_RETREAT_DISTANCE := 14.0    # GUESS: ...and while leaving it keeps to patrol points at least this far from you
+const DEMON_RETREAT_NOTICE := 2.0      # GUESS: ...unless you walk this close to it
 const DEMON_IGNORE_TIME := 12.0        # GUESS: seconds it leaves you alone after giving up
 const DEMON_ATTACK_RANGE := 1.4        # GUESS
 const DEMON_ATTACK_WINDUP := 0.35      # GUESS: warning time before a hit lands
@@ -56,6 +60,8 @@ const DEMON_ATTACK_COOLDOWN := 3.0     # GUESS
 const DEMON_LOSE_TIME := 4.0           # GUESS: seconds without seeing you before it stops chasing
 const BANISH_COOLDOWN := 40.0          # GUESS (GDD: open question)
 const RESPAWN_MIN_DISTANCE := 15.0     # GUESS: it never comes back closer than this
+const DEMON_START_GRACE := 20.0        # GUESS: seconds after you get control in which it cannot see or hear you
+const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far down the nave, not to your door
 
 # --- Level ---
 const RELICS_NEEDED := 4
@@ -63,3 +69,39 @@ const RELICS_NEEDED := 4
 # false = the original hand-coded cathedral (level.gd)
 const ROOM_LEVEL := true
 const CATHEDRAL_SCENARIO := true
+
+# --- Passage (the walk between two churches, scripts/passage.gd) ---
+const PASSAGE_CELLS := 42                  # length of the first road (before level 2) in 2 m cells (84 m)
+const PASSAGE_CELLS_PER_LEVEL := 5         # each later level adds this many cells
+const PASSAGE_WALK_SPEED := 1.4            # m/s, W held
+const PASSAGE_FIRST_QUIET := 6.0           # seconds before it first comes
+const PASSAGE_QUIET_MIN := 5.0             # quiet spell between its visits (seconds)...
+const PASSAGE_QUIET_MAX := 10.0
+const PASSAGE_QUIET_PER_LEVEL := 1.0       # ...shorter by this much every level (never below 2.5 s)
+const PASSAGE_THING_SPEED := 2.6           # how fast it drifts along the passage (m/s)
+const PASSAGE_THING_SPEED_PER_LEVEL := 0.35
+const PASSAGE_LISTEN_MIN := 2.5            # how long it lingers beside you, listening (seconds)
+const PASSAGE_LISTEN_MAX := 4.0
+const PASSAGE_LISTEN_PER_LEVEL := 0.4
+const PASSAGE_DANGER_DISTANCE := 7.0       # closer than this it can hear you walk
+const PASSAGE_NOTICE_TIME := 0.45          # seconds of walking within that distance before it finds you
+const PASSAGE_CANDLE_DIM := 0.15            # your candle's brightness (x full) when it is right beside you
+const PASSAGE_STAND_CATCH := 2.2           # walk this close to it when it stands on the road and it has you
+const PASSAGE_STAND_WAIT := 3.0            # seconds you must stand still, eyes lowered, before it walks off (+ up to 1.5)
+const PASSAGE_STARE_DISTANCE := 8.0        # closer than this it feels you looking at it (while it listens or stands)
+const PASSAGE_STARE_ANGLE := 0.27          # how near the middle of your view its face must be to count as looking (radians)
+const PASSAGE_STARE_TIME := 1.6            # seconds of looking before it has you
+const PASSAGE_GUST_MIN := 10.0             # seconds between gusts of wind...
+const PASSAGE_GUST_MAX := 22.0
+const PASSAGE_GUST_PER_LEVEL := 2.0        # ...shorter by this much every level (never below 8 s)
+const PASSAGE_GUST_BLOWOUT := 0.5          # chance a gust takes your light (otherwise it only shakes and dims it)
+const PASSAGE_LISTEN_BLOWOUT := 0.7        # chance your light dies when it comes to listen beside you
+const PASSAGE_RELIGHT_TIME := 1.3          # seconds to strike a light (F); you cannot walk meanwhile
+const PASSAGE_MATCH_HEARING := 14.0        # it hears a light being struck from this far and comes to you
+const PASSAGE_RELIGHT_SCARE := 0.5         # chance (once per walk) that it stands in front of you when the flame catches
+
+
+# The level you are on (1 = the first church). Set by the menu, raised after each altar ritual.
+# The passage between levels is played before levels 2, 3, ... (not before the first church).
+static func level_number() -> int:
+	return int(Engine.get_meta("ira_level", 1))

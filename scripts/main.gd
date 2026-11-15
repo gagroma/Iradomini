@@ -50,6 +50,7 @@ var carried := 0                # relics in your hands
 var placed := 0                 # relics already on the altar
 var candle_intro := false
 var intro := false
+var demon_grace := 0.0          # seconds left in which the demon cannot see or hear you (start of a level)
 
 var _seed := 0
 var _time := 0.0
@@ -155,6 +156,8 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		if intro:
 			_intro.play()
+		else:
+			demon_grace = T.DEMON_START_GRACE
 
 
 func candle_flame_uv() -> Vector2:
@@ -171,8 +174,21 @@ func finish_candle_intro() -> void:
 		end_intro()
 
 
+# Where the door slam draws the demon: down the nave, DOOR_SLAM_DISTANCE from the door (or halfway to
+# the demon if it is closer), never right at the door where you stand.
+func slam_point() -> Vector2:
+	var door := Vector2(level.door_pos.x, level.door_pos.z)
+	var to_demon: Vector2 = demon.pos2 - door
+	var d := to_demon.length()
+	if d < 0.01:
+		return door
+	var p := door + to_demon / d * minf(T.DOOR_SLAM_DISTANCE, d * 0.5)
+	return level.nav.closest_reachable(demon.pos2, p) if not level.nav.is_free(p) else p
+
+
 func end_intro() -> void:
 	intro = false
+	demon_grace = T.DEMON_START_GRACE
 	_intro = null
 	player.frozen = false
 	hud.show()
@@ -403,7 +419,11 @@ func _begin_prayer() -> void:
 
 func show_win() -> void:
 	game_state = "won"
-	_win.reveal()
+	# levels go on: walk the passage to the next, harder church instead of a "play again" screen
+	Engine.set_meta("ira_level", T.level_number() + 1)
+	_fade_target = 1.0
+	await get_tree().create_timer(1.6).timeout
+	get_tree().change_scene_to_file("res://scenes/passage.tscn")
 
 
 func flash(amount: float) -> void:
@@ -439,7 +459,9 @@ func player_step(running: bool, crouching: bool) -> void:
 		radius = T.NOISE_CROUCH
 		volume = -30.0
 	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
-	var heard = demon.hear(player.pos2(), radius)
+	var heard = false
+	if demon_grace <= 0.0:
+		heard = demon.hear(player.pos2(), radius)
 	# arcs on screen: crouch 1, walk 2, run 4, a relic or two more
 	hud.stealth.step(clampi(int(round(sqrt(radius) * 1.25)), 1, 5), heard)
 
@@ -514,6 +536,8 @@ func _return_to_title() -> void:
 func _process(dt: float) -> void:
 	_time += dt
 	_state_time += dt
+	if not intro and not candle_intro:
+		demon_grace = maxf(0.0, demon_grace - dt)
 
 	# GDD: effects grow from 0 to 1 with how close the demon is
 	var target_fear = 0.0
@@ -530,7 +554,7 @@ func _process(dt: float) -> void:
 	if not _door_done and _time > 2.5:
 		_door_done = true
 		sfx.play_at("door_slam", level.door_pos, 4.0)
-		demon.hear(Vector2(level.door_pos.x, level.door_pos.z) if USE_ROOM_LEVEL else Vector2(0.0, 1.0), 200.0)
+		demon.hear(slam_point(), 200.0)
 
 	if _clatter_wait > 0.0:
 		_clatter_wait -= dt

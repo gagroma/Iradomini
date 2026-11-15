@@ -172,7 +172,8 @@ func find_path(from: Vector2, to: Vector2, chalk = null) -> Array:
 
 # When there is no way to "to", this finds the free spot closest to it that
 # the demon CAN reach. That is where it stands and screams at you.
-func closest_reachable(from: Vector2, to: Vector2, chalk = null) -> Vector2:
+# Searches at most about max_dist metres around "from" (the whole map was too slow on big levels).
+func closest_reachable(from: Vector2, to: Vector2, chalk = null, max_dist := 18.0) -> Vector2:
 	var start = _free_cell_near(from, chalk)
 	if start == null:
 		return from
@@ -182,6 +183,7 @@ func closest_reachable(from: Vector2, to: Vector2, chalk = null) -> Vector2:
 	var queue = [start]
 	var head = 0
 	var steps = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var limit := int(max_dist / CELL)
 	while head < queue.size():
 		var c = queue[head]
 		head += 1
@@ -191,6 +193,8 @@ func closest_reachable(from: Vector2, to: Vector2, chalk = null) -> Vector2:
 			best = c
 		for s in steps:
 			var n = c + s
+			if absi(n.x - start.x) > limit or absi(n.y - start.y) > limit:
+				continue
 			if in_bounds(n) and not astar.is_point_solid(n) and not seen.has(n):
 				seen[n] = true
 				queue.append(n)

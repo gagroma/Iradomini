@@ -386,7 +386,7 @@ func _slam() -> void:
 	_set_leaf(0.0)
 	main.sfx.play_at("door_slam", main.level.door_pos, 4.0)
 	player.shake(0.35)
-	main.demon.hear(Vector2(main.level.door_pos.x, main.level.door_pos.z), 200.0)
+	main.demon.hear(main.slam_point(), 200.0)
 
 
 func _finish() -> void:

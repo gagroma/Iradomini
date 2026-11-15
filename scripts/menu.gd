@@ -7,7 +7,7 @@ const TitleWordmark = preload("res://scripts/title_wordmark.gd")
 const HowToPlay = preload("res://scripts/how_to_play.gd")
 const FlameTransition = preload("res://scripts/flame_transition.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
-const GAME_SCENE = preload("res://main.tscn")
+const GAME_SCENE = preload("res://main.tscn")   # level 1 starts in the church; the passage comes between levels
 const INK := UIStyle.BONE
 const MUTED_INK := UIStyle.ASH
 
@@ -84,6 +84,7 @@ func _start_game() -> void:
 	var title_fade := create_tween()
 	title_fade.tween_property(_title_art, "modulate:a", 0.0, 0.65)
 	await _stage.burn_circle()
+	Engine.set_meta("ira_level", 1)
 	var transition := FlameTransition.new()
 	get_tree().root.add_child(transition)
 	transition.open_game(GAME_SCENE, _stage.last_ember_uv(), _sfx.streams.get("burn"))

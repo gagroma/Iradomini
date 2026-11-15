@@ -47,8 +47,12 @@ var _patrol_i := 0
 var _pause := 0.0
 var _look_wait := 0.0
 var _repath := 0.0
+var _fail_cd := 0.0                 # after a failed route plan, wait this long before planning again
 var _blocked_left := 0.0
 var _ignore := 0.0                  # while > 0 it has given up on an unreachable player
+var _shield_id := -1                # the circle you are hiding in that blocked it (-1 = none)
+var _shield_time := -99.0           # when it was last blocked by that circle
+var _retreat := 0.0                 # while > 0 it has been beaten by a circle and is leaving: no hunting, no listening
 var _lost := 0.0                    # seconds since it last saw the player
 var _attack_cd := 0.0
 var _windup := 0.0
@@ -148,6 +152,8 @@ func distance_to_player() -> float:
 func hear(at: Vector2, radius: float) -> bool:
 	if state == S.GONE or state == S.RECOVER or state == S.BLOCKED:
 		return false
+	if _retreat > 0.0:      # leaving after a circle beat it: it does not come back for noises
+		return false
 	if pos2.distance_to(at) > radius:
 		return false
 	_last_known = at
@@ -188,6 +194,8 @@ func _sense(pp: Vector2) -> void:
 	sees_player = false
 	var p = main.player
 	if not p.alive:
+		return
+	if main.demon_grace > 0.0:      # the first seconds of a level: it does not notice you yet
 		return
 	var to_p = pp - pos2
 	var dist = to_p.length()
@@ -326,6 +334,7 @@ func _physics_process(dt: float) -> void:
 	_scream_cd = maxf(0.0, _scream_cd - dt)
 	_attack_cd = maxf(0.0, _attack_cd - dt)
 	_ignore = maxf(0.0, _ignore - dt)
+	_retreat = maxf(0.0, _retreat - dt)
 
 	if state == S.GONE:
 		_gone_left -= dt
@@ -340,7 +349,7 @@ func _physics_process(dt: float) -> void:
 	var pp = main.player.pos2()
 	_sense(pp)
 	var reachable = not main.chalk.is_separated(pos2, pp)
-	if reachable:
+	if reachable and _retreat <= 0.0:
 		_ignore = 0.0
 	_update_trap(dt, pp)
 
@@ -362,6 +371,9 @@ func _physics_process(dt: float) -> void:
 
 
 func _wants_chase(reachable: bool) -> bool:
+	if _retreat > 0.0:
+		# it has given up on you: only walking right into it starts a chase again
+		return sees_player and reachable and distance_to_player() < T.DEMON_RETREAT_NOTICE
 	return sees_player and (reachable or _ignore <= 0.0)
 
 
@@ -389,6 +401,13 @@ func _do_patrol(dt: float, reachable: bool) -> void:
 		var target = points[_patrol_i]
 		if pos2.distance_to(target) < 0.7:
 			_patrol_i = (_patrol_i + 1) % points.size()
+			# leaving after a circle beat it: skip the patrol points near you
+			if _retreat > 0.0:
+				var pp: Vector2 = main.player.pos2()
+				for k in points.size():
+					if points[_patrol_i].distance_to(pp) >= T.DEMON_RETREAT_DISTANCE:
+						break
+					_patrol_i = (_patrol_i + 1) % points.size()
 			_pause = 0.6
 			return
 		_path = _path_to(target)
@@ -456,6 +475,11 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 	if sees_player and not reachable and not main.chalk.closest_line(pos2, _reach + 0.3).is_empty():
 		_start_blocked()
 		return
+	# you are standing in a closed circle close by: no hunting round it for a way in, it goes
+	# straight to the line, presses on it and screams (BLOCKED walks it up to the line)
+	if sees_player and not reachable and dist < T.DEMON_SHIELD_RANGE and main.chalk.loop_containing(pp) != null:
+		_start_blocked()
+		return
 
 	if _windup > 0.0:
 		_turn_towards(to_p, dt, 12.0)
@@ -487,7 +511,12 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 	# Re-plan the route 4 times a second. When a circle shields the player the
 	# goal does not move, so the route is only planned again once it is used up.
 	_repath -= dt
+	_fail_cd -= dt
 	var shielded = sees_player and not reachable
+	if _path.is_empty() and _fail_cd > 0.0:
+		# no route right now (you are pressed against a line or a prop): stare, plan again soon
+		_turn_towards(to_p, dt, 8.0)
+		return
 	if _path.is_empty() or (_repath <= 0.0 and not shielded):
 		_repath = 0.25
 		_path = []
@@ -501,6 +530,7 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 					_start_blocked()
 				else:
 					_lost += 1.0
+					_fail_cd = 0.5
 				return
 			_path = _path_to(close)
 			if _path.is_empty():
@@ -508,6 +538,7 @@ func _do_chase(dt: float, pp: Vector2, reachable: bool) -> void:
 					_start_blocked()
 				else:
 					_lost += 1.0
+					_fail_cd = 0.5
 				return
 	var result = _follow(dt, T.DEMON_CHASE_SPEED)
 	if result == 2:
@@ -536,16 +567,35 @@ func _do_recover(dt: float, pp: Vector2) -> void:
 # GDD: "This is the moment the whole game is made for."
 func _start_blocked() -> void:
 	state = S.BLOCKED
-	_blocked_left = T.DEMON_BLOCKED_TIME
 	_path = []
-	_scream()
+	# blocked again by the same circle soon after: carry on the same count, so going round the
+	# circle and coming back does not start it over (it gives up after DEMON_BLOCKED_TIME in total)
+	var loop = main.chalk.loop_containing(main.player.pos2())
+	var id: int = loop["id"] if loop != null else -1
+	if id != _shield_id or _time - _shield_time > 6.0:
+		_blocked_left = T.DEMON_BLOCKED_TIME
+		_scream()
+	_shield_id = id
+	_shield_time = _time
+
+
+# True while you are still inside the circle that blocked it. Its own position sits right on the
+# line, so "are we on different sides" flickers; asking where YOU are does not.
+func _still_shielded(pp: Vector2) -> bool:
+	if _shield_id < 0:
+		return false
+	for loop in main.chalk.loops:
+		if loop["id"] == _shield_id:
+			return Geometry2D.is_point_in_polygon(pp, loop["pts"])
+	return false
 
 
 func _do_blocked(dt: float, pp: Vector2, reachable: bool) -> void:
 	var to_p = pp - pos2
 	var dist = to_p.length()
 	_turn_towards(to_p, dt, 10.0)
-	if reachable:
+	_shield_time = _time
+	if reachable and not _still_shielded(pp):
 		# the line is gone, or you stepped out
 		if sees_player:
 			_start_chase()
@@ -556,11 +606,25 @@ func _do_blocked(dt: float, pp: Vector2, reachable: bool) -> void:
 		_step_direct(to_p / dist, 1.6, dt, 0.3)    # press right up to the line
 	_blocked_left -= dt
 	if _blocked_left <= 0.0:
-		# give up for a while and walk away (GDD: "...and leaves")
-		_ignore = T.DEMON_IGNORE_TIME
+		# give up and really leave (GDD: "...and leaves"): walk off to the far side of the level and
+		# do not hunt or listen for you for a while, even once you step out of the circle
+		_ignore = T.DEMON_GIVE_UP_TIME
+		_retreat = T.DEMON_GIVE_UP_TIME
 		state = S.PATROL
+		_patrol_i = _far_patrol_index(pp)
 		_path = []
 		_pause = 0.0
+
+
+# The patrol point furthest from the player that it can actually walk to.
+func _far_patrol_index(pp: Vector2) -> int:
+	var points = main.level.patrol_points
+	var order := range(points.size())
+	order.sort_custom(func(a, b): return points[a].distance_to(pp) > points[b].distance_to(pp))
+	for i in order.slice(0, 6):
+		if not main.level.nav.find_path(pos2, points[i], main.chalk).is_empty():
+			return i
+	return order[0] if not order.is_empty() else 0
 
 
 # ----------------------------------------------------------------- BANISHING
@@ -610,6 +674,7 @@ func _respawn() -> void:
 	_path = []
 	_pause = 1.5
 	_ignore = 0.0
+	_retreat = 0.0
 	_dissolve_target = 0.0
 	_apply_transform()
 	main.on_demon_returned()
