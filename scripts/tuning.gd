@@ -39,7 +39,7 @@ const CANDLE_BURN_TIME := 400.0   # GUESS: seconds the candle in your hand lasts
 const CANDLE_WIND_BURN := 0.5      # GUESS: running makes it burn this much faster (0.5 = +50%)
 
 # --- Demon ---
-const DEMON_ENABLED := false           # false = the demon leaves for good (to look at the level in peace)
+const DEMON_ENABLED := true            # false = the demon leaves for good (to look at the level in peace)
 const DEMON_PATROL_SPEED := 1.5        # GUESS
 const DEMON_INVESTIGATE_SPEED := 2.3   # GUESS
 const DEMON_CHASE_SPEED := 4.3         # GUESS (slower than your run, faster than your walk)
