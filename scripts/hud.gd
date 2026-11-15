@@ -13,6 +13,7 @@ var note: Label
 var debug: Label
 var stealth                 # stealth_hud.gd: the demon's eye, your footsteps, hidden or not
 var relics_ui
+var inventory
 
 var _chalk_gauge: ChalkGauge
 var _reticle: ColorRect
@@ -46,6 +47,8 @@ func setup() -> void:
 	add_child(stealth)
 	relics_ui = preload("res://scripts/relic_tracker.gd").new()
 	add_child(relics_ui)
+	inventory = preload("res://scripts/inventory_hud.gd").new()
+	add_child(inventory)
 	_chalk_gauge = ChalkGauge.new()
 	add_child(_chalk_gauge)
 

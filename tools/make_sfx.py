@@ -12,6 +12,7 @@ TARGET_RMS = {
     "door_slam": -9.3, "door_creak": -17.4, "lighter_open": -22.8, "lighter_strike": -17.9,
     "lighter_close": -22.7, "prayer_murmur": -22.9, "sigh": -24.9, "book_open": -22.5,
     "book_close": -25.0, "clatter": -20.2, "ending": -16.3, "swing": -18.1,
+    "shotgun": -7.5, "gun_break": -21.0, "shell_in": -23.0, "gun_close": -18.5, "dry_fire": -24.0, "shell_drop": -23.5,
 }
 
 
@@ -694,6 +695,61 @@ def prayer_murmur():
     return reverb(x[:n_of(L)], IR_ROOM, 0.18)[:n_of(L)]
 
 
+def shotgun():
+    L = 3.2
+    crack = hp(noise(0.012) * env_ad(0.012, 0.0002, 0.003), 900) * 1.4
+    blast = lp(noise(0.35), 2600) * env_ad(0.35, 0.0008, 0.06, 1.3) * 1.6
+    body = np.sin(2 * np.pi * curve([(0, 95), (0.08, 55), (0.4, 38)], 0.5) * t(0.5)) * env_ad(0.5, 0.001, 0.16) * 1.3
+    tail = lp(pink(1.4), 900) * env_ad(1.4, 0.02, 0.45) * 0.45
+    mech = modal(0.25, [(2300, 0.03, 0.4), (3700, 0.02, 0.3), (5100, 0.015, 0.2)])
+    x = mix(crack, blast, body, place(tail, 0.01, 1.5), place(mech * 0.3, 0.001, 0.3))
+    x = soft(x * 2.2, 2.0)
+    return reverb(place(x, 0, L), IR_CHURCH, 0.55)[:n_of(L)]
+
+
+def gun_break():
+    L = 0.6
+    latch = modal(0.25, [(1450, 0.05, 0.5), (2380, 0.035, 0.4), (3900, 0.02, 0.25)])
+    slide = bp(noise(0.18), 2600, 0.8) * env_ad(0.18, 0.02, 0.1) * 0.35
+    clunk = lp(noise(0.06) * env_ad(0.06, 0.001, 0.015), 500) * 0.9
+    stop = modal(0.3, [(720, 0.06, 0.6), (1180, 0.05, 0.45), (2050, 0.03, 0.3)])
+    return reverb(mix(latch, place(slide, 0.03, L), place(clunk, 0.19, L), place(stop, 0.19, L)), IR_ROOM, 0.15)
+
+
+def shell_in():
+    L = 0.4
+    slide = bp(noise(0.12), 1900, 1.1) * env_ad(0.12, 0.03, 0.06) * 0.4
+    seat = modal(0.2, [(980, 0.04, 0.5), (1720, 0.03, 0.35), (3100, 0.015, 0.2)])
+    thump = lp(noise(0.03) * env_ad(0.03, 0.001, 0.008), 700) * 0.6
+    return reverb(mix(slide, place(seat, 0.1, L), place(thump, 0.1, L)), IR_ROOM, 0.12)
+
+
+def gun_close():
+    L = 0.7
+    swing_ = bp(noise(0.1), 1300, 0.8) * env_ad(0.1, 0.04, 0.04) * 0.25
+    snap = modal(0.4, [(860, 0.07, 0.7), (1530, 0.05, 0.55), (2470, 0.035, 0.4), (4080, 0.02, 0.25)])
+    thud = lp(noise(0.05) * env_ad(0.05, 0.0008, 0.012), 450) * 1.0
+    lever = modal(0.2, [(3300, 0.03, 0.3), (5200, 0.02, 0.2)])
+    return reverb(mix(swing_, place(thud, 0.09, L), place(snap, 0.09, L), place(lever * 0.6, 0.13, L)), IR_ROOM, 0.15)
+
+
+def dry_fire():
+    L = 0.35
+    fall = modal(0.15, [(2900, 0.025, 0.5), (4700, 0.018, 0.35), (1800, 0.03, 0.3)])
+    return reverb(mix(click(0.003, 2000, 9000) * 0.7, place(fall, 0.002, L)), IR_ROOM, 0.1)
+
+
+def shell_drop():
+    L = 0.8
+    x = np.zeros(n_of(L))
+    at = 0.0
+    for k in range(4):
+        hit_ = modal(0.18, [(rng.uniform(600, 900), 0.05, 0.6), (rng.uniform(1500, 2100), 0.03, 0.4), (rng.uniform(3200, 4100), 0.015, 0.25)])
+        x = mix(x, place(hit_ * 0.55 ** k, at, L))
+        at += 0.09 * 0.7 ** k + 0.03
+    return reverb(x, IR_ROOM, 0.15)
+
+
 # ================================================================== BUILD
 
 if __name__ == "__main__":
@@ -705,6 +761,8 @@ if __name__ == "__main__":
         ("burn", burn), ("clatter", clatter), ("demon_scream", demon_scream), ("demon_notice", demon_notice),
         ("heartbeat", heartbeat), ("hit", hit), ("swing", swing), ("sigh", sigh), ("ending", ending),
         ("banish", banish), ("prayer_murmur", prayer_murmur),
+        ("shotgun", shotgun), ("gun_break", gun_break), ("shell_in", shell_in), ("gun_close", gun_close),
+        ("dry_fire", dry_fire), ("shell_drop", shell_drop),
     ]
     loops = [("demon_breath", demon_breath), ("drone", drone), ("choir_rev", choir_rev)]
     only = set(sys.argv[2:])

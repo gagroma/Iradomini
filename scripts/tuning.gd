@@ -39,7 +39,7 @@ const CANDLE_BURN_TIME := 400.0   # GUESS: seconds the candle in your hand lasts
 const CANDLE_WIND_BURN := 0.5      # GUESS: running makes it burn this much faster (0.5 = +50%)
 
 # --- Demon ---
-const DEMON_ENABLED := false            # false = the demon leaves for good (to look at the level in peace)
+const DEMON_ENABLED := true            # false = the demon leaves for good (to look at the level in peace)
 const DEMON_PATROL_SPEED := 1.5        # GUESS
 const DEMON_INVESTIGATE_SPEED := 2.3   # GUESS
 const DEMON_CHASE_SPEED := 4.3         # GUESS (slower than your run, faster than your walk)
@@ -67,6 +67,10 @@ const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far 
 const RELICS_NEEDED := 4
 const LEVELS := 5
 const LEVEL_DEMONS := [1, 2, 3, 4, 5]
+const SHOTGUN_STUN := 10.0
+const SHOTGUN_STUN_PER_LEVEL := 1.0
+const SHOTGUN_RANGE := 14.0
+const SHOTGUN_LOUDNESS := 30.0
 const LEVEL_EXTRA_ROOMS := [0, 2, 4, 6, 8]
 # true = R.E.P.O.-style level from the 7 room templates (room_level.gd);
 # false = the original hand-coded cathedral (level.gd)

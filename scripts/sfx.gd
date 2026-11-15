@@ -9,7 +9,7 @@ extends Node
 const NAMES = [
 	"step1", "step2", "demon_step", "demon_breath", "demon_scream", "demon_notice",
 	"heartbeat", "drone", "choir_rev", "hit", "candle_out", "pickup", "place",
-	"burn", "banish", "door_slam", "door_creak", "lighter_open", "lighter_strike", "lighter_close", "prayer_murmur", "sigh", "book_open", "book_close", "clatter", "ending", "swing", "chant", "record", "wind", "twig",
+	"burn", "banish", "door_slam", "door_creak", "lighter_open", "lighter_strike", "lighter_close", "prayer_murmur", "sigh", "book_open", "book_close", "clatter", "ending", "swing", "chant", "record", "wind", "twig", "shotgun", "gun_break", "shell_in", "gun_close", "dry_fire", "shell_drop",
 ]
 
 var streams := {}

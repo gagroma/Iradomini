@@ -4,10 +4,10 @@ signal back_requested
 
 const UIStyle = preload("res://scripts/ui_style.gd")
 const BRASS := Color("#b48c5a")
-const SIZE := Vector2(384, 238)
+const SIZE := Vector2(384, 258)
 const COL_W := 174.0
 const ROW_H := 17.0
-const ROW_STEP := 20.0
+const ROW_STEP := 19.0
 
 const LEFT := [
 	["Movement", [
@@ -15,9 +15,12 @@ const LEFT := [
 		["Run", ["Shift"], true],
 		["Crouch  ·  hide near cover", ["Ctrl"], true],
 	]],
-	["Chalk", [
+	["Chalk & sawn-off", [
 		["Draw a chalk line", ["LMB"], true],
 		["Erase a circle", ["RMB"], true],
+		["Switch item", ["Wheel"], false],
+		["Chalk  ·  sawn-off", ["1", "2"], false],
+		["Fire the sawn-off", ["LMB"], false],
 	]],
 ]
 const RIGHT := [
@@ -104,7 +107,7 @@ func _column(groups: Array, at: Vector2) -> void:
 		for row in group[1]:
 			_row(at.x, y, row[0], row[1], row[2])
 			y += ROW_STEP
-		y += 6.0
+		y += 4.0
 
 
 func _row(x: float, y: float, action: String, keys: Array, hold: bool) -> void:

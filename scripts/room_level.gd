@@ -52,6 +52,7 @@ var crossing_rect := Rect2()
 var door_pos := Vector3.ZERO
 var entrance_leaf: Node3D
 var intro_crates: Node3D
+var intro_gun_table: Node3D
 var extra_rooms := 0
 var relic_hardness := 0.0
 var _outside: Node3D
@@ -84,6 +85,7 @@ func build(seed_value: int) -> void:
 	add_child(_body)
 	_instance_rooms()
 	_place_intro_crates()
+	_place_gun_table()
 	_clear_doorways_and_props()
 	_keep_passable()
 	_wall_boxes()
@@ -843,6 +845,18 @@ func _place_intro_crates() -> void:
 	fixed.add_child(c)
 	c.global_transform = marker.global_transform
 	intro_crates = c
+
+
+func _place_gun_table() -> void:
+	var room: Node3D = rooms[0]["node"]
+	var fixed := room.get_node_or_null("Fixed")
+	if fixed == null:
+		return
+	var t: Node3D = load("res://assets/props/chalktable.glb").instantiate()
+	t.name = "GunTable"
+	fixed.add_child(t)
+	t.global_transform = room.global_transform * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(-2.42, 0.0, -0.05))
+	intro_gun_table = t
 
 
 func _start_room() -> void:

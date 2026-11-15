@@ -19,6 +19,11 @@ const HandChalk = preload("res://scripts/hand_chalk.gd")
 const Models = preload("res://scripts/models.gd")
 const HAND_RIGHT = preload("res://assets/models/hand_right.glb")   # tools/make_hands.py
 const HAND_LEFT = preload("res://assets/models/hand_left.glb")
+const SawnOff = preload("res://scripts/sawn_off.gd")
+const GUN_POSE := Vector3(0.2, -0.205, -0.36)
+const GUN_POSE_ROT := Vector3(0.02, 0.06, 0.0)
+const GUN_IN_HAND := Vector3(0.0, 0.006, -0.06)
+const GUN_IN_HAND_ROT := Vector3(0.0, 0.0, 0.0)
 # where the right hand rests (it holds the chalk at its back end, tip forward)
 const RIGHT_REST := Vector3(0.2, -0.15, -0.33)
 const RIGHT_REST_ROT := Vector3(-0.5, 0.3, 0.0)
@@ -71,6 +76,15 @@ var erase_progress := 0.0
 var _pinned := 0.0
 var auto_move := Vector3.ZERO
 var right_override: Variant = null
+var gun: Node3D
+var has_gun := false
+var shells := 0
+var weapon := 0
+var _switch_to := 0
+var _lower := 0.0
+var _recoil := 0.0
+var _fire_cd := 0.0
+var _lmb_was := false
 
 var _time := 0.0
 var _bob := 0.0
@@ -132,6 +146,63 @@ func setup(main_node) -> void:
 	chalk_stick = HandChalk.new()   # the end in your fingers at the hand's origin, tip forward
 	right_hand.add_child(chalk_stick)
 	right_hand.add_child(_hand_model(HAND_RIGHT, hand_mat))
+	gun = SawnOff.new()
+	gun.sfx = main.sfx
+	gun.transform = gun_in_hand()
+	gun.visible = false
+	right_hand.add_child(gun)
+
+
+static func gun_in_hand() -> Transform3D:
+	return Transform3D(Basis.from_euler(GUN_IN_HAND_ROT), GUN_IN_HAND)
+
+
+static func gun_pose() -> Transform3D:
+	return Transform3D(Basis.from_euler(GUN_POSE_ROT), GUN_POSE)
+
+
+func give_gun(loaded: int) -> void:
+	has_gun = true
+	shells = loaded
+	gun.set_loaded(2)
+
+
+func switch_weapon(to: int) -> void:
+	if not has_gun or to == _switch_to or not alive or frozen or right_override != null:
+		return
+	_switch_to = to
+	main.on_weapon_switch(to)
+
+
+func holster() -> void:
+	weapon = 0
+	_switch_to = 0
+	_lower = 0.0
+	if gun != null and not gun.top_level:
+		gun.visible = false
+	chalk_stick.visible = true
+
+
+func _switching() -> bool:
+	return _switch_to != weapon or _lower > 0.05
+
+
+func _fire() -> void:
+	if _fire_cd > 0.0:
+		return
+	_fire_cd = 0.45
+	if shells <= 0:
+		main.sfx.play("dry_fire", -2.0)
+		_recoil = 0.12
+		return
+	shells -= 1
+	gun.fire()
+	_recoil = 1.0
+	pitch_target = minf(pitch_target + 0.075, 1.4)
+	yaw_target += randf_range(-0.025, 0.025)
+	shake(0.55)
+	main.sfx.play("shotgun", 3.0)
+	main.on_shot(cam.global_position, -cam.global_transform.basis.z)
 
 
 func _hand_model(scene: PackedScene, mat: Material) -> Node3D:
@@ -147,6 +218,14 @@ func pos2() -> Vector2:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			switch_weapon(1 - _switch_to)
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_1:
+			switch_weapon(0)
+		elif event.physical_keycode == KEY_2:
+			switch_weapon(1)
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if alive and not frozen:
 			var rel = event.screen_relative
@@ -237,6 +316,16 @@ func _physics_process(dt: float) -> void:
 		if critical_time <= 0.0:
 			critical = false
 
+	_fire_cd = maxf(0.0, _fire_cd - dt)
+	_recoil = move_toward(_recoil, 0.0, dt * 3.2)
+	if _switch_to != weapon:
+		_lower = move_toward(_lower, 1.0, dt / 0.2)
+		if _lower >= 1.0:
+			weapon = _switch_to
+			if weapon == 1:
+				main.sfx.play("gun_close", -16.0, 1.3)
+	else:
+		_lower = move_toward(_lower, 0.0, dt / 0.25)
 	_update_camera(dt, moved)
 	_update_chalk(dt, can_act and captured)
 
@@ -276,6 +365,8 @@ func _update_camera(dt: float, moved: float) -> void:
 	candle.tick(dt, fear)
 	# GDD "Zapas bez interfeisa": the chalk stick gets shorter as you use it
 	chalk_stick.set_left(clampf(main.chalk.chalk / Boons.chalk_max(), 0.0, 1.0))
+	if right_override == null and weapon == 1:
+		chalk_stick.visible = false
 
 
 # Drawing: the right arm stretches out towards the spot on the floor you look
@@ -289,6 +380,19 @@ func _update_right_hand(dt: float) -> void:
 	if right_override != null:
 		right_hand.transform = right_override
 		return
+	if gun != null and not gun.top_level:
+		gun.visible = has_gun and weapon == 1
+		gun.transform = gun_in_hand()
+	chalk_stick.visible = weapon == 0
+	var low := Vector3(0.05, -0.34, 0.14) * smoothstep(0.0, 1.0, _lower)
+	if weapon == 1:
+		var r := _recoil * _recoil
+		var pose := gun_pose()
+		pose.basis = pose.basis * Basis(Vector3.RIGHT, 0.5 * r + 0.02 * sin(_time * 1.3))
+		pose.origin += Vector3(0.0, 0.025 * r, 0.075 * r) + low
+		right_hand.transform = pose
+		return
+	rest.origin += low
 	if k <= 0.001:
 		right_hand.transform = rest
 		return
@@ -322,7 +426,20 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 				var ray := PhysicsRayQueryParameters3D.create(origin, floor_point, collision_mask)
 				aim_valid = get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
 
-	var want_draw = can_draw and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var lmb = can_draw and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if weapon == 1 or _switching():
+		if drawing:
+			drawing = false
+			main.chalk.release()
+		rubbing = false
+		erase_progress = 0.0
+		main.chalk.erase_cancel()
+		if weapon == 1 and not _switching() and lmb and not _lmb_was:
+			_fire()
+		_lmb_was = lmb
+		return
+	_lmb_was = lmb
+	var want_draw = lmb
 	if want_draw:
 		drawing = true
 		if aim_valid:

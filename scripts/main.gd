@@ -153,6 +153,9 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup()
+	hud.inventory.player = player
+	if level_no >= 2:
+		player.give_gun(2)
 	_spawn_relics()
 	journal_view = JournalView.new()
 	journal_view.sfx = sfx
@@ -221,6 +224,9 @@ func slam_point() -> Vector2:
 
 func end_intro() -> void:
 	intro = false
+	if not player.has_gun:
+		player.give_gun(2)
+	hud.inventory.pop(player.weapon)
 	demon_grace = T.DEMON_START_GRACE
 	_intro = null
 	player.frozen = false
@@ -429,6 +435,7 @@ func _interact() -> void:
 	elif target["type"] == "altar":
 		_place_next()
 	elif target["type"] == "wardrobe":
+		player.holster()
 		hiding = WardrobeHide.new()
 		add_child(hiding)
 		hiding.start(self, target["w"])
@@ -470,6 +477,7 @@ func _place_next() -> void:
 	carried -= 1
 	placed += 1
 	altar_busy = true
+	player.holster()
 	var scene = AltarScene.new()
 	add_child(scene)
 	scene.place(self, r)
@@ -491,6 +499,7 @@ func altar_done() -> void:
 
 func _begin_prayer() -> void:
 	altar_busy = true
+	player.holster()
 	game_state = "prayer"
 	chalk.release()
 	hud.hide()
@@ -533,6 +542,37 @@ func on_ward_broken() -> void:
 	sfx.play("banish", -10.0, 1.5)
 	var left: int = player.wards
 	hud.show_note("The medallion takes the blow" + ("" if left == 0 else "  ·  %d left" % left), 4.0)
+
+
+func stun_seconds() -> float:
+	return maxf(1.0, T.SHOTGUN_STUN - T.SHOTGUN_STUN_PER_LEVEL * (level_no - 1))
+
+
+func on_shot(origin: Vector3, dir: Vector3) -> void:
+	flash(0.25)
+	var space: PhysicsDirectSpaceState3D = player.get_world_3d().direct_space_state
+	for d in demons:
+		if not d.is_active():
+			continue
+		for aim in [d.head_position() + Vector3(0, -0.45, 0), Vector3(d.pos2.x, 1.25, d.pos2.y), d.head_position()]:
+			var to: Vector3 = aim - origin
+			var dist := to.length()
+			if dist > T.SHOTGUN_RANGE:
+				continue
+			var spread := atan(0.45 / maxf(dist, 0.5)) + 0.05
+			if dir.angle_to(to) > spread:
+				continue
+			var ray := PhysicsRayQueryParameters3D.create(origin, aim, 1)
+			if not space.intersect_ray(ray).is_empty():
+				continue
+			d.stun(stun_seconds(), dir)
+			break
+	hear_all(player.pos2(), T.SHOTGUN_LOUDNESS)
+
+
+func on_weapon_switch(to: int) -> void:
+	if hud.inventory != null:
+		hud.inventory.pop(to)
 
 
 func hear_all(at: Vector2, radius: float) -> bool:

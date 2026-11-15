@@ -61,6 +61,9 @@ var _gone_left := 0.0
 var _last_known := Vector2.ZERO
 var _investigate := Vector2.ZERO
 var _notice_cd := 0.0
+var _stun := 0.0
+var _stun_total := 1.0
+var _stun_push := Vector2.ZERO
 
 var _moving := false
 var _move_speed := 0.0
@@ -159,7 +162,29 @@ func distance_to_player() -> float:
 
 # Called for every noise: a footstep, the door, a falling candlestick.
 # Returns true if it heard it.
+func stun(seconds: float, from_dir: Vector3) -> void:
+	if state == S.GONE:
+		return
+	_stun = seconds
+	_stun_total = seconds
+	_stun_push = Vector2(from_dir.x, from_dir.z).normalized()
+	_atk_t = -1.0
+	_windup = 0.0
+	_scream_t = -1.0
+	_path = []
+	sees_player = false
+	_material.set_shader_parameter("flash", 1.0)
+	_burst.restart()
+	main.sfx.play_at("demon_scream", head_position(), -2.0)
+
+
+func is_stunned() -> bool:
+	return _stun > 0.0
+
+
 func hear(at: Vector2, radius: float) -> bool:
+	if _stun > 0.0:
+		return false
 	if state == S.GONE or state == S.RECOVER or state == S.BLOCKED:
 		return false
 	if _retreat > 0.0:      # leaving after a circle beat it: it does not come back for noises
@@ -183,6 +208,8 @@ func hear(at: Vector2, radius: float) -> bool:
 # For the stealth eye: 0 = no idea where you are, 1 = heard something,
 # 2 = sees you / hunting you.
 func awareness() -> int:
+	if _stun > 0.0:
+		return 0
 	if state == S.CHASE or sees_player:
 		return 2
 	if state == S.INVESTIGATE:
@@ -355,6 +382,22 @@ func _physics_process(dt: float) -> void:
 		_animate(dt)
 		return
 
+	if _stun > 0.0:
+		_stun -= dt
+		_moving = false
+		sees_player = false
+		var shove := clampf(1.0 - (_stun_total - _stun) / 0.35, 0.0, 1.0)
+		if shove > 0.0:
+			var step := _stun_push * 1.6 * shove * dt
+			if main.level.nav.is_free(pos2 + step):
+				pos2 += step
+		_keep_off_chalk()
+		_apply_transform()
+		_animate(dt)
+		if _stun <= 0.0:
+			_last_known = main.player.pos2()
+			_start_chase()
+		return
 	var pp = main.player.pos2()
 	_sense(pp)
 	var reachable = not main.chalk.is_separated(pos2, pp)
@@ -985,6 +1028,22 @@ func _animate(dt: float) -> void:
 			r["fore" + s_] = r["fore" + s_].lerp(Vector3(-0.6, 0.0, 0.0), w)
 			r["hand" + s_] = r["hand" + s_].lerp(Vector3(-0.5 + randf_range(-jit, jit) * 4.0, 0.0, 0.0), w)
 		mouth = 1.0 + 0.8 * w
+	if _stun > 0.0:
+		var since := _stun_total - _stun
+		var hit_k := 1.0 - smoothstep(0.0, 0.5, since)
+		var slump := smoothstep(0.15, 0.9, since) * (1.0 - smoothstep(_stun_total - 0.8, _stun_total, since))
+		var sway := sin(t * 1.7) * 0.06
+		r["spine"] += Vector3(-0.7 * hit_k + 0.55 * slump, sway, 0.12 * slump)
+		r["head"] += Vector3(-0.9 * hit_k + 0.7 * slump, sway * 2.0, 0.35 * slump)
+		r["hips"] += Vector3(0.0, 0.0, 0.05 * slump)
+		for side in [0, 1]:
+			var s_ = "_l" if side == 0 else "_r"
+			var out = -1.0 if side == 0 else 1.0
+			r["arm" + s_] = r["arm" + s_].lerp(Vector3(0.35 * hit_k + 0.15 * slump, 0.0, out * (0.6 * hit_k + 0.05)), maxf(hit_k, slump))
+			r["fore" + s_] = r["fore" + s_].lerp(Vector3(-0.1, 0.0, 0.0), slump)
+			r["hand" + s_] = r["hand" + s_].lerp(Vector3(0.3 + 0.1 * sin(t * 3.0 + side), 0.0, 0.0), slump)
+			r["leg" + s_] += Vector3(-0.25 * slump, 0.0, 0.0)
+			r["shin" + s_] += Vector3(0.55 * slump, 0.0, 0.0)
 	r["head"] += _twitch * (0.6 if _scream_t >= 0.0 else 1.0)
 
 	# --- turn every joint towards its target ---
@@ -999,7 +1058,13 @@ func _animate(dt: float) -> void:
 	flip.position = Vector3(randf_range(-shudder, shudder), -absf(sin(ph)) * 0.05 * walk - 0.12 * run, randf_range(-shudder, shudder))
 	# the eyes flare when it sees you
 	var want = 3.2 if sees_player else 2.0
+	if _stun > 0.0:
+		want = 0.25 + 0.2 * absf(sin(t * 9.0))
 	_eye_light.light_energy = lerpf(_eye_light.light_energy, want, 1.0 - exp(-6.0 * dt))
+	var fl_v = _material.get_shader_parameter("flash")
+	var fl: float = fl_v if fl_v != null else 0.0
+	if fl > 0.0:
+		_material.set_shader_parameter("flash", maxf(0.0, fl - dt * 3.0))
 	_measure_body()
 
 

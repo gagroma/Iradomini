@@ -4,6 +4,9 @@ const PlayerScript = preload("res://scripts/player.gd")
 const Lighter = preload("res://scripts/lighter.gd")
 const PrayerBook = preload("res://scripts/prayer_book.gd")
 const HandCandle = preload("res://scripts/candle.gd")
+const SawnOff = preload("res://scripts/sawn_off.gd")
+const CHECK_POS := Vector3(0.04, -0.12, -0.31)
+const CHECK_ROT := Vector3(0.28, 0.7, -0.32)
 const READ_POSE := Vector3(0.0, -0.15, -0.36)
 const READ_TILT := 1.15
 const SkipHint = preload("res://scripts/skip_hint.gd")
@@ -61,6 +64,17 @@ var _old: Node3D
 var _old_vel := Vector3.ZERO
 var _old_spin := Vector3.ZERO
 var _kindle := Transform3D.IDENTITY
+var _has_table := false
+var _table: Node3D
+var _table_top := Vector3.ZERO
+var _gun_spot := Transform3D.IDENTITY
+var _gun_approach := Vector3.ZERO
+var _candle_table := Transform3D.IDENTITY
+var _table_shells := []
+var _hulls := []
+var _grab := Transform3D.IDENTITY
+var _shell_i := 0
+var _shell_from := Transform3D.IDENTITY
 
 
 func setup(main_node) -> void:
@@ -96,6 +110,7 @@ func setup(main_node) -> void:
 	_setup_crates()
 	if _return and _has_crates:
 		_setup_old_candle()
+	_setup_gun_table()
 	if _return:
 		player.position = _stand - _inn * 0.6
 		player.pitch_target = 0.0
@@ -150,6 +165,57 @@ func _setup_crates() -> void:
 	_book.cross = false
 	main.add_child(_book)
 	_book.global_transform = _book_spot
+
+
+func _setup_gun_table() -> void:
+	_table = main.level.get("intro_gun_table")
+	if _table == null or not _table.is_visible_in_tree():
+		return
+	_has_table = true
+	var tp := _table.global_position
+	var centre: Vector3 = main.level.player_start
+	if "rooms" in main.level:
+		centre = Vector3(main.level.rooms[0]["pos"].x, 0.0, main.level.rooms[0]["pos"].y)
+	var to_room := centre - tp
+	to_room.y = 0.0
+	to_room = to_room.normalized()
+	var along := Vector3.UP.cross(to_room).normalized()
+	var top := _surface_y(_table, tp + to_room * 0.05, 0.887)
+	_table_top = Vector3(tp.x, top, tp.z)
+	_gun_approach = tp + to_room * 0.66
+	_gun_approach.y = 0.0
+	var gb := Basis(Vector3.DOWN, -to_room, along)
+	_gun_spot = Transform3D(gb, _table_top + along * 0.06 + to_room * 0.04 + Vector3.UP * 0.0245)
+	_candle_table = Transform3D(Basis(Vector3.UP, atan2(-to_room.x, -to_room.z) - 2.36), _table_top + along * 0.2 + to_room * 0.08)
+	if _return:
+		for i in 2:
+			var sh := SawnOff.make_shell(SawnOff.material())
+			main.add_child(sh)
+			var sb := Basis(along.cross(Vector3.UP).normalized(), Vector3.UP, along) * Basis(Vector3.UP, 0.25 * (i - 0.5))
+			sh.global_transform = Transform3D(Basis(Vector3.UP, 0.4 + i * 0.5) * Basis(Vector3.RIGHT, PI * 0.5), _table_top - along * (0.16 + i * 0.045) + to_room * (0.09 - i * 0.02) + Vector3.UP * 0.0105)
+			_table_shells.append(sh)
+	else:
+		var gun: Node3D = player.gun
+		gun.top_level = true
+		gun.visible = true
+		gun.set_loaded(2)
+		gun.global_transform = _gun_spot
+
+
+func _check_pose() -> Transform3D:
+	return Transform3D(Basis.from_euler(CHECK_ROT), CHECK_POS)
+
+
+func _gun_grab() -> Transform3D:
+	return _to_hands(_gun_spot * PlayerScript.gun_in_hand().affine_inverse())
+
+
+func _left_holding(obj_world: Transform3D) -> void:
+	player.left_hand.global_transform = obj_world * _left_rest
+
+
+func _after_candle() -> String:
+	return "turn_gun" if _has_table else "chalk_pocket"
 
 
 func _setup_old_candle() -> void:
@@ -267,6 +333,8 @@ func _process(dt: float) -> void:
 	if not running:
 		return
 	_t += dt
+	for h in _hulls:
+		SawnOff.fly(h, dt, main.sfx)
 	if _old != null:
 		_old.tick(dt, 0.0)
 		_old_flight(dt)
@@ -383,7 +451,7 @@ func _process(dt: float) -> void:
 			if _t >= 0.95:
 				_attach_candle()
 				_hide_right()
-				_go("chalk_pocket")
+				_go(_after_candle())
 		"chalk_pocket":
 			player.pitch_toward(-0.08, 3.0, dt)
 			var dip = _low_right()
@@ -463,7 +531,7 @@ func _process(dt: float) -> void:
 				_lighter.queue_free()
 				_lighter = null
 				_hide_right()
-				_go("chalk_pocket" if _return else "reach_chalk")
+				_go(_after_candle() if _return else "reach_chalk")
 		"reach_chalk":
 			player.aim_at(_chalk_spot.origin, 4.0, dt)
 			var grab = _to_hands(_chalk_spot * _chalk_rest.affine_inverse())
@@ -522,8 +590,163 @@ func _process(dt: float) -> void:
 			if _t >= 0.6:
 				_book.queue_free()
 				_book = null
-				player.chalk_stick.visible = true
-				_go("chalk_back")
+				player.chalk_stick.visible = not _has_table
+				_go("turn_gun" if _has_table else "chalk_back")
+		"turn_gun":
+			player.aim_at(_table_top, 3.0, dt)
+			if _t >= 0.7:
+				_go("to_gun")
+		"to_gun":
+			player.aim_at(_table_top, 3.5, dt)
+			if player.walk_to(_gun_approach, 1.35):
+				_go("at_gun")
+		"at_gun":
+			player.aim_at(_gun_spot.origin, 4.0, dt)
+			if _t >= 0.35:
+				_go("put_candle" if _return else "reach_gun")
+		"reach_gun":
+			player.aim_at(_gun_spot.origin, 4.0, dt)
+			_right(_low_right().interpolate_with(_gun_grab(), _ease(_t / 0.6)))
+			if _t >= 0.6:
+				_grab = _hands() * _gun_grab()
+				player.gun.top_level = false
+				player.gun.transform = PlayerScript.gun_in_hand()
+				main.sfx.play("pickup", -14.0, 0.7)
+				_go("lift_gun")
+		"lift_gun":
+			player.pitch_toward(-0.5, 3.0, dt)
+			var u = _ease(_t / 0.8)
+			var g = _grab.interpolate_with(_hands() * _check_pose(), u)
+			g.origin.y += sin(PI * u) * 0.06
+			_right(_to_hands(g))
+			if _t >= 0.85:
+				_go("open_gun")
+		"draw_gun":
+			player.pitch_toward(-0.5, 3.0, dt)
+			player.gun.visible = true
+			player.gun.top_level = false
+			player.gun.transform = PlayerScript.gun_in_hand()
+			player.gun.set_loaded(2)
+			_right(_low_right().interpolate_with(_check_pose(), _ease(_t / 0.6)))
+			if _t >= 0.65:
+				_go("open_gun")
+		"open_gun":
+			player.pitch_toward(-0.5, 3.0, dt)
+			var pose = _check_pose()
+			if _once("break_" + str(_return)):
+				main.sfx.play("gun_break", -6.0)
+			player.gun.open = _ease(_t / 0.3)
+			if _return and _t >= 0.45:
+				var flick = sin(PI * clampf((_t - 0.45) / 0.3, 0.0, 1.0))
+				pose = Transform3D(pose.basis * Basis(Vector3.RIGHT, 0.55 * flick), pose.origin + Vector3(0, 0.05, 0.03) * flick)
+				if _t >= 0.55 and _once("eject"):
+					_hulls = player.gun.eject(main, 2)
+			_right(pose)
+			if _t >= (1.1 if _return else 1.4):
+				_shell_i = 0
+				_go("load_reach" if _return else "close_gun")
+		"put_candle":
+			player.aim_at(_candle_table.origin, 4.0, dt)
+			var u = _ease(_t / 0.7)
+			var g = (_hands() * _candle_rest).interpolate_with(_candle_table, u)
+			g.origin.y += sin(PI * u) * 0.04
+			player.candle.top_level = true
+			player.candle.held = false
+			player.candle.global_transform = g
+			player.left_hand.top_level = true
+			_left_holding(g)
+			if _t >= 0.7:
+				main.sfx.play("place", -16.0, 1.2)
+				_go("left_off")
+		"left_off":
+			var low = _hands() * Transform3D(_candle_rest.basis, _candle_rest.origin + Vector3(-0.05, -0.4, 0.1))
+			player.left_hand.global_transform = (_candle_table * _left_rest).interpolate_with(low * _left_rest, _ease(_t / 0.4))
+			if _t >= 0.4:
+				_go("draw_gun")
+		"load_reach":
+			var shell: Node3D = _table_shells[_shell_i]
+			player.aim_at(shell.global_position, 2.0, dt, -0.75, 0.4)
+			_right(_check_pose())
+			var low = _hands() * Transform3D(_candle_rest.basis, _candle_rest.origin + Vector3(-0.05, -0.4, 0.1)) * _left_rest
+			player.left_hand.global_transform = low.interpolate_with(shell.global_transform * _shell_grip(), _ease(_t / 0.45))
+			if _t >= 0.45:
+				_shell_from = shell.global_transform
+				main.sfx.play("pickup", -20.0, 1.5)
+				_go("load_lift")
+		"load_lift":
+			_right(_check_pose())
+			var shell: Node3D = _table_shells[_shell_i]
+			var ch: Node3D = player.gun.chambers[_shell_i]
+			var mouth = ch.global_transform
+			mouth.origin += mouth.basis.z.normalized() * 0.075
+			var u = _ease(_t / 0.55)
+			var g = _shell_from.interpolate_with(mouth, u)
+			g.origin.y += sin(PI * u) * 0.05
+			shell.global_transform = g
+			player.left_hand.global_transform = g * _shell_grip()
+			if _t >= 0.55:
+				_go("load_push")
+		"load_push":
+			_right(_check_pose())
+			var shell: Node3D = _table_shells[_shell_i]
+			var ch: Node3D = player.gun.chambers[_shell_i]
+			var mouth = ch.global_transform
+			mouth.origin += mouth.basis.z.normalized() * 0.075 * (1.0 - _ease(_t / 0.22))
+			shell.global_transform = mouth
+			player.left_hand.global_transform = mouth * _shell_grip()
+			if _t >= 0.22:
+				shell.visible = false
+				ch.visible = true
+				main.sfx.play("shell_in", -4.0)
+				_shell_i += 1
+				_go("load_reach" if _shell_i < _table_shells.size() else "load_done")
+		"load_done":
+			_right(_check_pose())
+			var low = _hands() * Transform3D(_candle_rest.basis, _candle_rest.origin + Vector3(-0.05, -0.4, 0.1)) * _left_rest
+			var last: Node3D = player.gun.chambers[1]
+			player.left_hand.global_transform = (last.global_transform * _shell_grip()).interpolate_with(low, _ease(_t / 0.35))
+			if _t >= 0.35:
+				_go("close_gun")
+		"close_gun":
+			player.pitch_toward(-0.45, 3.0, dt)
+			var pose = _check_pose()
+			var snap = clampf((_t - 0.1) / 0.1, 0.0, 1.0)
+			player.gun.open = 1.0 - snap
+			var jolt = sin(PI * clampf((_t - 0.12) / 0.2, 0.0, 1.0))
+			pose = Transform3D(pose.basis * Basis(Vector3.RIGHT, -0.35 * jolt), pose.origin + Vector3(0, 0.03, -0.02) * jolt)
+			if _t >= 0.18 and _once("snap_" + str(_return)):
+				main.sfx.play("gun_close", -4.0)
+				player.shake(0.12)
+			_right(pose)
+			if _t >= 0.75:
+				_go("take_candle" if _return else "stow_gun")
+		"take_candle":
+			_right(_check_pose())
+			player.aim_at(_candle_table.origin, 3.5, dt)
+			var low = _hands() * Transform3D(_candle_rest.basis, _candle_rest.origin + Vector3(-0.05, -0.4, 0.1)) * _left_rest
+			if _t < 0.45:
+				player.left_hand.global_transform = low.interpolate_with(_candle_table * _left_rest, _ease(_t / 0.45))
+			else:
+				var u = _ease((_t - 0.45) / 0.7)
+				var g = _candle_table.interpolate_with(_hands() * _candle_rest, u)
+				g.origin.y += sin(PI * u) * 0.04
+				player.candle.global_transform = g
+				_left_holding(g)
+			if _t >= 1.15:
+				_attach_candle()
+				_go("stow_gun")
+		"stow_gun":
+			player.pitch_toward(0.0, 2.0, dt)
+			_right(_check_pose().interpolate_with(_low_right(), _ease(_t / 0.45)))
+			if _t >= 0.45:
+				player.gun.visible = false
+				player.give_gun(2)
+				if _return:
+					_hide_right()
+					_go("chalk_pocket")
+				else:
+					player.chalk_stick.visible = true
+					_go("chalk_back")
 		"chalk_back":
 			_right(_low_right().interpolate_with(_rest_right(), _ease(_t / 0.4)))
 			if _t >= 0.4:
@@ -542,6 +765,10 @@ func _process(dt: float) -> void:
 			player.pitch_target = lerpf(_pitch_from, _pitch_to, u)
 			if _t >= BACK_TIME:
 				_finish()
+
+
+func _shell_grip() -> Transform3D:
+	return Transform3D(Basis.from_euler(Vector3(-1.2, 0.3, 0.4)), Vector3(0.03, -0.06, 0.03)).affine_inverse() * _left_rest
 
 
 func _old_flight(dt: float) -> void:
@@ -683,6 +910,17 @@ func _finish() -> void:
 		player.chalk_stick.top_level = false
 		player.chalk_stick.transform = _chalk_rest
 	player.chalk_stick.visible = true
+	if player.gun.top_level:
+		player.gun.top_level = false
+	player.gun.transform = PlayerScript.gun_in_hand()
+	player.gun.open = 0.0
+	player.gun.visible = false
+	player.gun.set_loaded(2)
+	player.give_gun(2)
+	for sh in _table_shells:
+		if is_instance_valid(sh):
+			sh.queue_free()
+	_table_shells.clear()
 	if _book != null:
 		_book.queue_free()
 		_book = null
