@@ -19,7 +19,7 @@ render_mode specular_disabled;
 // the pale plaster under it; here and there the plaster has fallen too.
 
 uniform vec4 tint : source_color = vec4(1.0);
-uniform vec2 snap_res = vec2(160.0, 90.0);
+uniform vec2 snap_res = vec2(3840.0, 2160.0);
 uniform float paint_bands = 1.0;            // 0 = bare stone (columns, plinths)
 uniform float frieze_y = 5.72;              // centre of the star frieze (above the windows)
 uniform float dado_bottom = 0.26;           // where the painted curtain starts (above the plinth)

@@ -13,11 +13,15 @@ uniform float dissolve : hint_range(0.0, 1.0) = 0.0;
 uniform float brightness = 1.0;
 uniform vec3 flash_color : source_color = vec3(1.0, 0.5, 0.1);
 uniform float flash : hint_range(0.0, 1.0) = 0.0;
+uniform float rim_strength : hint_range(0.0, 1.0) = 0.0;
+uniform vec3 rim_color : source_color = vec3(0.55, 0.45, 0.9);
 
 varying float rnd;
+varying vec3 surface_normal;
 
 void vertex() {
 	rnd = UV.x;   // one random number per square, stored when the model was built
+	surface_normal = (MODELVIEW_MATRIX * vec4(NORMAL, 0.0)).xyz;
 	VERTEX += NORMAL * dissolve * (0.2 + rnd) * 1.2;
 	VERTEX.y += dissolve * rnd * 1.5;
 }
@@ -26,6 +30,11 @@ void fragment() {
 	if (rnd < dissolve) {
 		discard;
 	}
+	if (dot(normalize(surface_normal), VIEW) < -0.2) {
+		discard;
+	}
 	vec3 c = pow(COLOR.rgb, vec3(2.2)) * brightness;
+	float edge = pow(1.0 - clamp(dot(normalize(surface_normal), VIEW), 0.0, 1.0), 3.0);
+	c += rim_color * edge * rim_strength;
 	ALBEDO = mix(c, flash_color, flash);
 }

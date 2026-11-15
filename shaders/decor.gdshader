@@ -16,7 +16,7 @@ render_mode specular_schlick_ggx;
 // The same pull is in painting, mosaic, stained_glass and chalk_line shaders.
 
 uniform vec4 albedo : source_color = vec4(1.0);
-uniform sampler2D tex : source_color, filter_nearest;
+uniform sampler2D tex : source_color, filter_linear_mipmap_anisotropic;
 uniform bool use_tex = false;
 uniform bool use_vertex_color = false;
 uniform float metallic = 0.0;

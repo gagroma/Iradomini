@@ -7,6 +7,8 @@ const COVER := 0.004
 const OPEN_ANGLE := -0.16
 
 var opened := 0.0
+var cover := Color(0.36, 0.05, 0.04)
+var cross := true
 
 var _flap: Node3D
 
@@ -15,7 +17,7 @@ static var _pages := {}
 
 func _ready() -> void:
 	var leather = StandardMaterial3D.new()
-	leather.albedo_color = Color(0.36, 0.05, 0.04)
+	leather.albedo_color = cover
 	leather.roughness = 0.75
 	var gold = StandardMaterial3D.new()
 	gold.albedo_color = Color(0.85, 0.66, 0.28)
@@ -38,8 +40,10 @@ func _ready() -> void:
 	_box(Vector3(PAGE_W, BLOCK, PAGE_H), Vector3(-PAGE_W * 0.5 - 0.001, -BLOCK * 0.5, 0), paper, _flap)
 	_page(Vector3(-PAGE_W * 0.5 - 0.001, 0.0003, 0), _page_texture(rng, true), _flap)
 	_box(Vector3(PAGE_W + 0.004, COVER, PAGE_H + 0.006), Vector3(-PAGE_W * 0.5, -BLOCK - COVER * 0.5, 0), leather, _flap)
-	_box(Vector3(0.008, 0.0015, 0.07), Vector3(-PAGE_W * 0.5, -BLOCK - COVER - 0.0007, -0.01), gold, _flap)
-	_box(Vector3(0.042, 0.0015, 0.008), Vector3(-PAGE_W * 0.5, -BLOCK - COVER - 0.0007, -0.024), gold, _flap)
+	if cross:
+		_box(Vector3(0.008, 0.0015, 0.07), Vector3(-PAGE_W * 0.5, -BLOCK - COVER - 0.0007, -0.01), gold, _flap)
+	if cross:
+		_box(Vector3(0.042, 0.0015, 0.008), Vector3(-PAGE_W * 0.5, -BLOCK - COVER - 0.0007, -0.024), gold, _flap)
 	_apply()
 
 

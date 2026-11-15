@@ -36,6 +36,8 @@ const POST_SHADER = preload("res://shaders/post.gdshader")
 const GROUND_SHADER = preload("res://shaders/exterior_ground.gdshader")
 const STONE = preload("res://materials/kit/kit_stone.tres")
 const HAND_LEFT = preload("res://assets/models/hand_left.glb")
+const HAND_RIGHT = preload("res://assets/models/hand_right.glb")
+const LighterHand = preload("res://scripts/lighter_hand.gd")
 const STALKER = preload("res://assets/models/demon_stalker.glb")
 const GAME_SCENE := "res://main.tscn"
 
@@ -64,6 +66,11 @@ var events := []              # what happened on this walk, in order (read by th
 
 var sfx
 var cam: Camera3D
+var _hands: Node3D
+var _front_leaf: Node3D
+var _inside: OmniLight3D
+var _push_hand: Node3D
+var _lighter_hand: Node3D
 var head: Node3D
 var candle
 var post: ShaderMaterial
@@ -78,7 +85,8 @@ var _yaw := 0.0
 var _pitch := -0.05
 var _bob := 0.0
 var _step_acc := 0.0
-var _state := "walk"          # "walk", "caught", "done"
+var _state := "walk"          # "walk", "caught", "door"
+var _door_z := 0.0
 var _state_t := 0.0
 var _fade := 1.0
 var _fade_target := 0.0
@@ -300,7 +308,9 @@ func _facade(z: float, behind: bool) -> void:
 	for x in [-4.0, -2.0, 0.0, 2.0, 4.0]:
 		if x == 0.0:
 			_put(K_DOORWAY, Vector3(x, 0, z), yaw)
-			_put(P_DOOR, Vector3(x, 0, z), yaw)
+			var door := _put(P_DOOR, Vector3(x, 0, z), yaw)
+			if not behind:
+				_front_leaf = door.get_node("DoorLeaf")
 		elif absf(x) == 2.0:
 			_put(K_WALL_W, Vector3(x, 0, z), yaw)
 			_put(P_WINDOW, Vector3(x, 1.0, z), yaw)
@@ -316,6 +326,15 @@ func _facade(z: float, behind: bool) -> void:
 			warm.omni_range = 4.0
 			warm.position = Vector3(x, 0.4 if x == 0.0 else 2.0, z + 0.45)
 			add_child(warm)
+		_box(Vector3(4.2, 0.1, 4.0), Transform3D(Basis.IDENTITY, Vector3(0.0, -0.05, z - 2.1)), STONE)
+		for side in [-1.0, 1.0]:
+			_box(Vector3(0.3, 3.2, 4.0), Transform3D(Basis.IDENTITY, Vector3(side * 2.2, 1.6, z - 2.1)), STONE)
+		_inside = OmniLight3D.new()
+		_inside.light_color = Color(1.0, 0.6, 0.3)
+		_inside.light_energy = 0.0
+		_inside.omni_range = 6.0
+		_inside.position = Vector3(0.0, 1.4, z - 1.6)
+		add_child(_inside)
 
 
 # ----------------------------------------------------------------------- YOU
@@ -338,6 +357,7 @@ func _make_viewer() -> void:
 	candle.burns = false                 # the walk is short; only the wind and the stalker put it out
 	candle.position = Vector3(-0.2, -0.2, -0.39)
 	candle.rotation.y = -2.36
+	candle.left = maxf(float(Engine.get_meta("ira_candle_left", 0.5)), 0.04)
 	hands.add_child(candle)
 	var hand_mat := ShaderMaterial.new()
 	hand_mat.shader = Models.VCOLOR_SHADER
@@ -349,6 +369,16 @@ func _make_viewer() -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	left.rotation.y = 2.36
 	candle.add_child(left)
+	_hands = hands
+	_push_hand = HAND_RIGHT.instantiate()
+	for mi in _push_hand.find_children("*", "MeshInstance3D", true, false):
+		mi.material_override = hand_mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_push_hand.visible = false
+	hands.add_child(_push_hand)
+	_lighter_hand = LighterHand.new()
+	_lighter_hand.sfx = sfx
+	hands.add_child(_lighter_hand)
 
 
 func _input(event: InputEvent) -> void:
@@ -381,6 +411,7 @@ func _strike_light() -> void:
 		return
 	_strike = T.PASSAGE_RELIGHT_TIME
 	sfx.play("lighter_open", -6.0)
+	_lighter_hand.wick = _hands.global_transform.affine_inverse() * candle.flame_center()
 
 
 func _update_strike(dt: float) -> void:
@@ -776,6 +807,13 @@ func _process(dt: float) -> void:
 	cam.rotation.x = _pitch
 	if _state == "walk":
 		_update_strike(dt)
+	if _strike > 0.0:
+		_lighter_hand.strike_progress(1.0 - _strike / T.PASSAGE_RELIGHT_TIME)
+	elif candle.lit:
+		_lighter_hand.put_away()
+	elif _lighter_hand.visible:
+		_lighter_hand.cancel()
+	if _state == "walk":
 		_update_wind(dt)
 		_update_stalker(dt)
 		if _state == "walk" and _z <= -length + 1.6:
@@ -807,8 +845,8 @@ func _process(dt: float) -> void:
 			_fade_target = 1.0
 		if _state_t > 2.5:
 			get_tree().reload_current_scene()
-	if _state == "done" and _state_t > 1.6:
-		_go_to_church()
+	if _state == "door":
+		_update_door(dt)
 	_title.modulate.a = clampf(1.0 - (_time - 3.5) / 1.5, 0.0, 1.0)
 	_hint.modulate.a = clampf(1.0 - (_time - 11.0) / 2.0, 0.0, 1.0)
 	var show_prompt: bool = _state == "walk" and not candle.lit and _out_time > 1.2 and _strike <= 0.0
@@ -843,14 +881,57 @@ func _caught() -> void:
 
 
 func _arrive() -> void:
-	_state = "done"
+	_state = "door"
 	_state_t = 0.0
-	_fade_target = 1.0
-	sfx.play("door_creak", -4.0)
-	create_tween().tween_property(_rec, "volume_db", -80.0, 1.0)
+	_door_z = _z
+	create_tween().tween_property(_rec, "volume_db", -80.0, 2.0)
+
+
+func _update_door(dt: float) -> void:
+	var t := _state_t
+	var k := 1.0 - exp(-5.0 * dt)
+	_yaw = lerpf(_yaw, 0.0, k)
+	_pitch = lerpf(_pitch, 0.02 if t < 2.2 else -0.05, k)
+	var near := -length + 0.5
+	var through := -length - 1.4
+	_z = lerpf(_door_z, near, smoothstep(0.0, 0.9, t))
+	if t > 2.0:
+		_z = lerpf(near, through, smoothstep(2.0, 4.2, t))
+		_bob += dt * T.PASSAGE_WALK_SPEED * 5.5
+		_step_acc += dt
+		if _step_acc > 0.55:
+			_step_acc = 0.0
+			sfx.play("step1" if _rng.randf() < 0.5 else "step2", -16.0, _rng.randf_range(0.9, 1.1))
+	var open := smoothstep(1.15, 2.6, t)
+	open = open * open * (1.6 - 0.6 * open)
+	if _front_leaf != null:
+		_front_leaf.rotation.y = 1.75 * open
+	if t >= 1.15 and not events.has("door_open"):
+		events.append("door_open")
+		sfx.play("door_creak", -4.0)
+	_inside.light_energy = 2.2 * open
+	var gap := cam.global_position.z - (-length + 0.13) - sin(open * 1.75) * 0.35
+	var grip := Vector3(0.1, 0.04, -clampf(gap, 0.25, 0.58))
+	var push := _push_pose(grip)
+	var low := Transform3D(Basis.from_euler(Vector3(-0.5, 0.3, 0.0)), Vector3(0.25, -0.55, -0.21))
+	var reach := smoothstep(0.55, 1.15, t) * (1.0 - smoothstep(1.7, 2.3, t))
+	_push_hand.visible = reach > 0.01
+	_push_hand.transform = low.interpolate_with(push, reach)
+	if t > 3.0:
+		_fade_target = 1.0
+	if t > 4.4:
+		_go_to_church()
+
+
+func _push_pose(grip: Vector3) -> Transform3D:
+	var z := (Vector3(0.3, -0.4, 0.2) - grip).normalized()
+	var x := Vector3.UP.cross(z).normalized()
+	var b := Basis(x, z.cross(x), z) * Basis.from_euler(Vector3(0.2, 0.6, 0.0))
+	return Transform3D(b, grip - b * Vector3(0.0, -0.005, -0.035) + Vector3(0.0, -0.04, 0.0))
 
 
 func _go_to_church() -> void:
 	set_process(false)
 	Engine.set_meta("ira_seed", randi())
+	Engine.set_meta("ira_candle_lit", candle.lit)
 	get_tree().change_scene_to_file(GAME_SCENE)

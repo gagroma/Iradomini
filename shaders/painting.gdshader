@@ -6,7 +6,7 @@ render_mode specular_schlick_ggx;
 // Centuries of varnish make it warmer and darker, grime gathers along the
 // edges under the frame, and the varnish catches a little candlelight.
 
-uniform sampler2D tex : source_color, filter_nearest;
+uniform sampler2D tex : source_color, filter_linear_mipmap_anisotropic;
 uniform float age = 0.6;            // 0 = clean, 1 = very old varnish
 
 // Pulled a little towards the camera so the wobbling (PSX-snapped) wall

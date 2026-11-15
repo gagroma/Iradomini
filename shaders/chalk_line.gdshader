@@ -65,10 +65,11 @@ void fragment() {
 	// ragged edges, a different tear on each side
 	float tear = vnoise(vec2(s * 34.0, side * 7.0 + seed)) * 0.6
 	           + vnoise(vec2(s * 95.0, side * 13.0 + seed * 2.0)) * 0.4;
-	float edge = 0.72 + 0.36 * tear;
+	float far = smoothstep(0.004, 0.014, length(fwidth(wpos.xz)));
+	float edge = mix(0.72 + 0.36 * tear, 0.95, far);
 
 	// the floor's grain: chalk catches on the bumps of the stone
-	float grain = vnoise(wpos.xz * 95.0) * 0.6 + vnoise(wpos.xz * 31.0 + 5.3) * 0.4;
+	float grain = mix(vnoise(wpos.xz * 95.0) * 0.6 + vnoise(wpos.xz * 31.0 + 5.3) * 0.4, 0.8, far);
 	// streaks along the stroke from the stick's worn face
 	float streak = vnoise(vec2(s * 5.0, across * 7.0 + seed * 3.1));
 
@@ -80,7 +81,7 @@ void fragment() {
 
 	// loose dust just outside the line
 	float dust_n = vnoise(wpos.xz * 140.0 + 11.0);
-	float dust = (d < 1.55 && dust_n > 0.84 + 0.12 * smoothstep(0.9, 1.55, d) + fade) ? 1.0 : 0.0;
+	float dust = (far < 0.5 && d < 1.55 && dust_n > 0.84 + 0.12 * smoothstep(0.9, 1.55, d) + fade) ? 1.0 : 0.0;
 
 	if (chalk < 0.5 && dust < 0.5) {
 		discard;

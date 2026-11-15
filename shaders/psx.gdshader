@@ -7,10 +7,10 @@ render_mode specular_disabled;
 // and the world wobbled slightly as the camera moved. We copy that on purpose.
 // The texture is laid out from world position, so boxes need no UV work.
 
-uniform sampler2D tex : source_color, filter_nearest, repeat_enable;
+uniform sampler2D tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec4 tint : source_color = vec4(1.0);
 uniform float tex_scale = 0.5;                  // texture repeats per metre
-uniform vec2 snap_res = vec2(160.0, 90.0);      // smaller numbers = stronger wobble
+uniform vec2 snap_res = vec2(3840.0, 2160.0);      // smaller numbers = stronger wobble
 
 varying vec3 world_pos;
 varying vec3 world_nrm;

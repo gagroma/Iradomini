@@ -8,7 +8,7 @@ render_mode specular_schlick_ggx;
 // the camera as wall decor (decor.gdshader), because these lie on the floor,
 // which wobbles too.
 
-uniform vec2 snap_res = vec2(160.0, 90.0);
+uniform vec2 snap_res = vec2(3840.0, 2160.0);
 uniform float roughness = 0.85;
 uniform bool snap = true;                  // off for the player's own hands (they hold unsnapped things)
 

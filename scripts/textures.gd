@@ -19,6 +19,8 @@ static func _ramp(hex_list: Array) -> Array:
 
 
 static func _finish(img: Image) -> ImageTexture:
+	img.resize(img.get_width() * 4, img.get_height() * 4, Image.INTERPOLATE_CUBIC)
+	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
 

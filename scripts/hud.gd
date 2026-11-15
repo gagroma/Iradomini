@@ -10,9 +10,9 @@ const RETICLE_SHADER = preload("res://shaders/chalk_reticle.gdshader")
 var prompt: Label
 var status: Label
 var note: Label
-var help: Label
 var debug: Label
 var stealth                 # stealth_hud.gd: the demon's eye, your footsteps, hidden or not
+var relics_ui
 
 var _chalk_gauge: ChalkGauge
 var _reticle: ColorRect
@@ -20,7 +20,6 @@ var _reticle_material: ShaderMaterial
 var _floor_amount := 0.0
 var _interact_amount := 0.0
 var _note_time := 0.0
-var _help_time := 16.0
 
 
 func setup() -> void:
@@ -38,15 +37,15 @@ func setup() -> void:
 	_reticle.offset_bottom = 12
 
 	prompt = _label(Vector2(0, 151), Vector2(480, 15), 12, HORIZONTAL_ALIGNMENT_CENTER)
-	status = _label(Vector2(6, 4), Vector2(300, 14), 11, HORIZONTAL_ALIGNMENT_LEFT)
+	status = _label(Vector2(6, 26), Vector2(300, 14), 10, HORIZONTAL_ALIGNMENT_LEFT)
+	status.add_theme_color_override("font_color", Color(1.0, 0.35, 0.28))
 	note = _label(Vector2(0, 60), Vector2(480, 14), 11, HORIZONTAL_ALIGNMENT_CENTER)
-	help = _label(Vector2(20, 206), Vector2(440, 60), 11, HORIZONTAL_ALIGNMENT_CENTER)
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	help.text = "WASD  Move  ·  Shift  Run  ·  Ctrl / C  Crouch to hide near cover\nHold LMB  Draw chalk  ·  Hold RMB  Erase a circle\nE  Interact  ·  The demon cannot cross a closed circle"
 	debug = _label(Vector2(300, 4), Vector2(176, 120), 8, HORIZONTAL_ALIGNMENT_RIGHT)
 	debug.visible = false
 	stealth = preload("res://scripts/stealth_hud.gd").new()
 	add_child(stealth)
+	relics_ui = preload("res://scripts/relic_tracker.gd").new()
+	add_child(relics_ui)
 	_chalk_gauge = ChalkGauge.new()
 	add_child(_chalk_gauge)
 
@@ -105,8 +104,3 @@ func _process(dt: float) -> void:
 		note.modulate.a = clampf(_note_time, 0.0, 1.0)
 	else:
 		note.modulate.a = 0.0
-	if _help_time > 0.0:
-		_help_time -= dt
-		help.modulate.a = clampf(_help_time, 0.0, 1.0)
-	else:
-		help.modulate.a = 0.0

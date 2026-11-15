@@ -5,6 +5,7 @@ const UIStyle = preload("res://scripts/ui_style.gd")
 const SettingsPanel = preload("res://scripts/settings_panel.gd")
 const TitleWordmark = preload("res://scripts/title_wordmark.gd")
 const HowToPlay = preload("res://scripts/how_to_play.gd")
+const ControlsPanel = preload("res://scripts/controls_panel.gd")
 const FlameTransition = preload("res://scripts/flame_transition.gd")
 const POST_SHADER = preload("res://shaders/post.gdshader")
 const GAME_SCENE = preload("res://main.tscn")   # level 1 starts in the church; the passage comes between levels
@@ -17,6 +18,9 @@ var _title_art: Control
 var _play_button: Button
 var _how_to_button: Button
 var _how_to: HowToPlay
+var _controls: ControlsPanel
+var _controls_button: Button
+var _controls_from_settings := false
 var _settings_button: Button
 var _fade: ColorRect
 var _breath: AudioStreamPlayer3D
@@ -108,6 +112,24 @@ func _close_how_to() -> void:
 	_how_to_button.grab_focus()
 
 
+func _open_controls(from_settings: bool) -> void:
+	_controls_from_settings = from_settings
+	_choices.hide()
+	_settings.hide()
+	_title_art.hide()
+	_controls.open()
+
+
+func _close_controls() -> void:
+	_controls.hide()
+	_title_art.show()
+	if _controls_from_settings:
+		_settings.open()
+	else:
+		_choices.show()
+		_controls_button.grab_focus()
+
+
 func _close_settings() -> void:
 	_settings.hide()
 	_choices.show()
@@ -139,7 +161,7 @@ func _build_interface() -> void:
 	post.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var post_material := ShaderMaterial.new()
 	post_material.shader = POST_SHADER
-	post_material.set_shader_parameter("levels", 32.0)
+	post_material.set_shader_parameter("levels", 128.0)
 	post.material = post_material
 	_add_left_shade(ui)
 
@@ -157,11 +179,16 @@ func _build_interface() -> void:
 	_choice_highlight.z_index = 1
 	_choice_highlight.hide()
 	ui.add_child(_choice_highlight)
-	_play_button = _button(_choices, "Play", 139, _start_game)
-	_how_to_button = _button(_choices, "How to Play", 167, _open_how_to)
-	_settings_button = _button(_choices, "Settings", 195, _open_settings)
-	_button(_choices, "Exit", 223, _quit_game)
+	_play_button = _button(_choices, "Play", 128, _start_game)
+	_how_to_button = _button(_choices, "How to Play", 154, _open_how_to)
+	_controls_button = _button(_choices, "Controls", 180, _open_controls.bind(false))
+	_settings_button = _button(_choices, "Settings", 206, _open_settings)
+	_button(_choices, "Exit", 232, _quit_game)
 	_build_settings(ui)
+	_controls = ControlsPanel.new()
+	ui.add_child(_controls)
+	_controls.back_requested.connect(_close_controls)
+	_settings.controls_requested.connect(_open_controls.bind(true))
 	_how_to = HowToPlay.new()
 	ui.add_child(_how_to)
 	_how_to.back_requested.connect(_close_how_to)
@@ -192,7 +219,7 @@ func _add_left_shade(parent: Control) -> void:
 
 func _build_settings(parent: Control) -> void:
 	_settings = SettingsPanel.new()
-	_settings.position = Vector2(20, 102)
+	_settings.position = Vector2(20, 90)
 	parent.add_child(_settings)
 	_settings.hide()
 	_settings.back_requested.connect(_close_settings)

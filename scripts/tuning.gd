@@ -61,11 +61,14 @@ const DEMON_ATTACK_COOLDOWN := 3.0     # GUESS
 const DEMON_LOSE_TIME := 4.0           # GUESS: seconds without seeing you before it stops chasing
 const BANISH_COOLDOWN := 40.0          # GUESS (GDD: open question)
 const RESPAWN_MIN_DISTANCE := 15.0     # GUESS: it never comes back closer than this
-const DEMON_START_GRACE := 20.0        # GUESS: seconds after you get control in which it cannot see or hear you
+const DEMON_START_GRACE := 8.0        # GUESS: seconds after you get control in which it cannot see you or hear you walk (running is always heard)
 const DOOR_SLAM_DISTANCE := 16.0       # GUESS: the door slam draws it this far down the nave, not to your door
 
 # --- Level ---
 const RELICS_NEEDED := 4
+const MUSIC_RELICS_LEFT := 2       # the music starts when this many relics (or fewer) are left to find
+const MUSIC_VOLUME := -9.0         # dB
+const MUSIC_TRACKS := ["res://audio/music/dark_corridor.ogg", "res://audio/music/black_mirror.ogg"]   # odd levels / even levels (Atelier Magicae, "Ancient Horrors")
 const LEVELS := 5
 const LEVEL_DEMONS := [1, 2, 2, 2, 2]     # demons per level: never more than two
 const LEVEL_EXTRA_ROOMS := [0, 2, 4, 6, 8]

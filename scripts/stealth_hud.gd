@@ -105,14 +105,23 @@ func _draw() -> void:
 			draw_arc(CENTRE, rad, deg_to_rad(150), deg_to_rad(210), 6, col, 1.0, false)
 			draw_arc(CENTRE, rad, deg_to_rad(-30), deg_to_rad(30), 6, col, 1.0, false)
 
-	# stamina: a thin bar under the eye, red while you are out of breath
+	# breath: beads on a curve under the eye, emptying from both ends inward; red while winded
 	if stamina < 0.999:
-		var bar = Rect2(CENTRE + Vector2(-20, 9), Vector2(40, 2))
-		draw_rect(bar, Color(0, 0, 0, 0.6))
-		var c = RED if winded else PALE
-		draw_rect(Rect2(bar.position, Vector2(40.0 * stamina, 2)), c)
-		if winded:
-			draw_rect(Rect2(bar.position + Vector2(40.0 * T_RECOVER, -1), Vector2(1, 4)), PALE * Color(1, 1, 1, 0.6))
+		var beads := 9
+		var lit := stamina * beads
+		var mid := (beads - 1) * 0.5
+		for i in beads:
+			var u := float(i) / (beads - 1)
+			var a := deg_to_rad(lerpf(140.0, 40.0, u))
+			var p := CENTRE + Vector2(0, -4) + Vector2(cos(a), sin(a)) * 19.0
+			var rank := beads - 1 - int(absf(i - mid) * 2.0)
+			var fill := clampf(lit - rank, 0.0, 1.0)
+			var col := RED.lerp(Color(1, 0.5, 0.4), 0.5 + 0.5 * sin(_time * 8.0)) if winded else PALE
+			draw_arc(p, 1.6, 0, TAU, 8, Color(col, 0.22), 1.0, false)
+			if fill > 0.0:
+				draw_circle(p, 1.5 * (0.5 + 0.5 * fill), Color(col, 0.35 + 0.6 * fill))
+			if winded and absf(float(rank) - T_RECOVER * beads) < 0.5:
+				draw_arc(p, 2.8, 0, TAU, 10, PALE * Color(1, 1, 1, 0.5), 1.0, false)
 
 	# the eye: two lids, and an iris when open
 	var w = 11.0

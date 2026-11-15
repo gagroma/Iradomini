@@ -487,7 +487,9 @@ func _build_narthex() -> void:
 	_wall_z(-4.2, 0.2, 6.0)
 	_wall_z(4.2, 0.2, 6.0)
 	# the wall between the narthex and the nave, with the doorway in it
-	_wall_x(0.0, -8.4, 8.4, [[-1.3, 1.3]])
+	_wall_x(0.0, -8.4, -1.3)
+	_wall_x(0.0, 1.3, 8.4)
+	_arch_portal(0.0, 0.0, 1.3, 3.6)
 	_floor(-1.3, -0.2, 1.3, 0.2)
 	_carve(-1.0, -0.5, 1.0, 0.5)
 	_candle(Vector3(-3.6, 1.45, 0.5), 1.4, 4.0)
@@ -500,6 +502,86 @@ func _build_narthex() -> void:
 		Vector2(-1.4, -0.5), Vector2(1.4, -0.5), Vector2(1.4, 0.0), Vector2(4.3, 0.0),
 		Vector2(4.3, 5.9), Vector2(-4.3, 5.9), Vector2(-4.3, 0.0), Vector2(-1.4, 0.0),
 	])
+
+
+func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, n: Vector3) -> void:
+	if (b - a).cross(c - a).dot(n) > 0.0:
+		var tmp = b
+		b = c
+		c = tmp
+	for v in [a, b, c]:
+		st.set_normal(n)
+		st.add_vertex(v)
+
+
+func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3) -> void:
+	_tri(st, a, b, c, n)
+	_tri(st, a, c, d, n)
+
+
+# A tall round-arched opening in a wall that runs along x: the stone above the arch, the arch's
+# band of voussoirs, the jambs down to the floor and an impost block at each springing.
+func _arch_portal(cx: float, z: float, r: float, spring: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var seg := 28
+	var hz := WALL_T * 0.5
+	var top := WALL_H
+	var c := Vector2(cx, spring)
+	var arc := func(a: float, rad: float) -> Vector2: return c + Vector2(cos(a), sin(a)) * rad
+	var rim := func(a: float) -> Vector2:
+		var d := Vector2(cos(a), sin(a))
+		var tt := INF
+		if absf(d.x) > 0.0001:
+			tt = minf(tt, r / absf(d.x))
+		if d.y > 0.0001:
+			tt = minf(tt, (top - spring) / d.y)
+		return c + d * tt
+	for side in [-1.0, 1.0]:
+		var zf: float = z + side * hz
+		var n := Vector3(0, 0, side)
+		for k in seg:
+			var a0 := PI * k / seg
+			var a1 := PI * (k + 1) / seg
+			var p0: Vector2 = arc.call(a0, r)
+			var p1: Vector2 = arc.call(a1, r)
+			var q0: Vector2 = rim.call(a0)
+			var q1: Vector2 = rim.call(a1)
+			_quad(st, Vector3(p0.x, p0.y, zf), Vector3(p1.x, p1.y, zf), Vector3(q1.x, q1.y, zf), Vector3(q0.x, q0.y, zf), n)
+	var band := 0.28
+	var hb := hz + 0.07
+	for side in [-1.0, 1.0]:
+		var zf: float = z + side * hb
+		var n := Vector3(0, 0, side)
+		for k in seg:
+			var a0 := PI * k / seg
+			var a1 := PI * (k + 1) / seg
+			var i0: Vector2 = arc.call(a0, r)
+			var i1: Vector2 = arc.call(a1, r)
+			var o0: Vector2 = arc.call(a0, r + band)
+			var o1: Vector2 = arc.call(a1, r + band)
+			_quad(st, Vector3(i0.x, i0.y, zf), Vector3(i1.x, i1.y, zf), Vector3(o1.x, o1.y, zf), Vector3(o0.x, o0.y, zf), n)
+	for k in seg:
+		var a0 := PI * k / seg
+		var a1 := PI * (k + 1) / seg
+		var i0: Vector2 = arc.call(a0, r)
+		var i1: Vector2 = arc.call(a1, r)
+		var o0: Vector2 = arc.call(a0, r + band)
+		var o1: Vector2 = arc.call(a1, r + band)
+		var am := (a0 + a1) * 0.5
+		var inward := Vector3(-cos(am), -sin(am), 0)
+		_quad(st, Vector3(i0.x, i0.y, z - hb), Vector3(i1.x, i1.y, z - hb), Vector3(i1.x, i1.y, z + hb), Vector3(i0.x, i0.y, z + hb), inward)
+		_quad(st, Vector3(o0.x, o0.y, z - hb), Vector3(o1.x, o1.y, z - hb), Vector3(o1.x, o1.y, z + hb), Vector3(o0.x, o0.y, z + hb), -inward)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = _mats["stone"]
+	add_child(mi)
+	for sx in [-1.0, 1.0]:
+		var x: float = cx + sx * (r + band * 0.5)
+		_box(Vector3(x, spring * 0.5, z), Vector3(band, spring, WALL_T + 0.14), "stone", false)
+		_box(Vector3(x + sx * 0.04, spring - 0.09, z), Vector3(band + 0.16, 0.18, WALL_T + 0.22), "stone", false)
+		_box(Vector3(x, 0.12, z), Vector3(band + 0.12, 0.24, WALL_T + 0.22), "stone", false)
+	_box(Vector3(cx, spring + r + band + 0.12, z), Vector3(0.34, 0.42, WALL_T + 0.18), "stone", false)
 
 
 func _entrance(slot: Transform3D) -> void:
