@@ -2,7 +2,7 @@ extends Node3D
 # ROOM LEVEL - builds a level R.E.P.O.-style out of the 7 room templates (scenes/rooms/dressed/,
 # made by tools/build_rooms.py) and gives the rest of the game exactly what level.gd gives it:
 # nav, covers, patrol_points, candles, relic_spots, player_start, demon_start, altar_*, narthex_poly,
-# crossing_rect, window_pos, door_pos, near_cover() and update_candles().
+# crossing_rect, door_pos, near_cover() and update_candles().
 #
 # How a level is made (all from the seed, so R rebuilds it and a death rolls a new one):
 #   1. START is placed first. Its back door (S1) is the way you came in and stays shut.
@@ -43,17 +43,16 @@ var player_yaw := 0.0
 var demon_start := Vector2.ZERO
 var altar_pos := Vector2.ZERO
 var altar_top := Vector3.ZERO
-var altar_yaw := 0.0
 var altar_front := Vector3.BACK
 var altar_way_in := Vector2.ZERO
 var altar_way_dir := Vector2.ZERO
 var altar_circle := PackedVector2Array()
 var narthex_poly := PackedVector2Array()
 var crossing_rect := Rect2()
-var window_pos := Vector3.ZERO
 var door_pos := Vector3.ZERO
 var entrance_leaf: Node3D
 var intro_crates: Node3D
+var _outside: Node3D
 
 # --- the plan ---
 # room: {name, tpl, kind, pos: Vector2 (centre), rot: int (quarter turns), rect: Rect2, node,
@@ -649,6 +648,12 @@ func _light_candles(light_limit := MAX_CANDLE_LIGHTS) -> void:
 
 # ----------------------------------------------------------- START and END
 
+func drop_outside() -> void:
+	if _outside != null:
+		_outside.queue_free()
+		_outside = null
+
+
 func _place_intro_crates() -> void:
 	var room: Node3D = rooms[0]["node"]
 	var fixed := room.get_node_or_null("Fixed")
@@ -679,10 +684,10 @@ func _start_room() -> void:
 	var to := x - p
 	player_yaw = atan2(-to.x, -to.y)
 	door_pos = Vector3(e.x, 1.5, e.y)
-	var outside := Exterior.new()
-	add_child(outside)
+	_outside = Exterior.new()
+	add_child(_outside)
 	var out_dir: Vector2 = entrance["dir"]
-	outside.build(Vector3(e.x, 0.0, e.y), Vector3(out_dir.x, 0.0, out_dir.y), rng.randi())
+	_outside.build(Vector3(e.x, 0.0, e.y), Vector3(out_dir.x, 0.0, out_dir.y), rng.randi())
 	# the salt threshold: the whole START room is safe; only the edge across the exit doorway is drawn
 	var o: Vector2 = exit["dir"]
 	var a := Vector2(-o.y, o.x)
@@ -712,9 +717,6 @@ func _end_room() -> void:
 	var ap := altar.global_position
 	altar_pos = Vector2(ap.x, ap.z)
 	altar_top = Vector3(ap.x, 1.03, ap.z)
-	altar_yaw = altar.global_rotation.y
-	var cross := room.get_node_or_null("Fixed/cross_1")
-	window_pos = cross.global_position + Vector3(0.0, -0.4, 0.0) if cross else Vector3(ap.x, 3.0, ap.z)
 	# the altar blocks the way; you can hide behind it
 	var foot := Rect2(ap.x - 0.9, ap.z - 0.45, 1.8, 0.9)
 	if r["rot"] % 2 == 1:
@@ -862,7 +864,7 @@ func near_cover(p: Vector2, dist: float) -> bool:
 	return false
 
 
-func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> void:
+func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, _viewer := Vector2.INF) -> void:
 	_time += dt
 	for c in candles:
 		var d = c["pos2"].distance_to(demon_pos)

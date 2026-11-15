@@ -26,6 +26,7 @@ const WinScreen = preload("res://scripts/win_screen.gd")
 const AltarScene = preload("res://scripts/altar_scene.gd")
 const DeathScene = preload("res://scripts/death_scene.gd")
 const DoorIntro = preload("res://scripts/door_intro.gd")
+const Warmup = preload("res://scripts/warmup.gd")
 const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
 const USE_ROOM_LEVEL := T.ROOM_LEVEL and not T.CATHEDRAL_SCENARIO
@@ -63,7 +64,6 @@ var _door_done := false
 var _clatter_done := false
 var _clatter_wait := -1.0
 var _clatter_pos := Vector3.ZERO
-var _state_time := 0.0
 var _debug := false
 var _drone = null
 var _choir = null
@@ -158,6 +158,9 @@ func _ready() -> void:
 			_intro.play()
 		else:
 			demon_grace = T.DEMON_START_GRACE
+	var warm = Warmup.new()
+	add_child(warm)
+	warm.run(self)
 
 
 func candle_flame_uv() -> Vector2:
@@ -439,8 +442,6 @@ func _prompt_text(target: Variant) -> String:
 		var next = _next_relic()
 		return "E  ·  Place the " + RELIC_NAMES[next["kind"]] if next != null else ""
 	if game_state == "play" and player.aim_valid and not player.drawing:
-		if T.CATHEDRAL_SCENARIO and chalk.is_near_altar_gap(player.aim_point):
-			return "Hold LMB  ·  Connect both ends"
 		if chalk.loop_at(player.aim_point) != null:
 			return "Hold RMB  ·  Erase circle"
 	return ""
@@ -474,7 +475,6 @@ func on_player_hit() -> void:
 
 func on_player_died() -> void:
 	game_state = "dead"
-	_state_time = 0.0
 	sfx.play("hit", 3.0)
 	sfx.play("demon_scream", 6.0, 0.85)
 	var death = DeathScene.new()
@@ -535,7 +535,6 @@ func _return_to_title() -> void:
 
 func _process(dt: float) -> void:
 	_time += dt
-	_state_time += dt
 	if not intro and not candle_intro:
 		demon_grace = maxf(0.0, demon_grace - dt)
 
@@ -578,7 +577,7 @@ func _process(dt: float) -> void:
 		var want = -19.0 if in_crossing else -60.0
 		_choir.volume_db = lerpf(_choir.volume_db, want, 1.0 - exp(-1.2 * dt))
 
-	level.update_candles(demon.pos2, demon.is_active(), dt, sfx)
+	level.update_candles(demon.pos2, demon.is_active(), dt, sfx, player.pos2())
 
 	# screen effects
 	_flash = move_toward(_flash, 0.0, dt * 1.6)

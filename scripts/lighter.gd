@@ -96,10 +96,6 @@ func _ready() -> void:
 	_noise.frequency = 0.9
 
 
-func flame_point() -> Vector3:
-	return global_transform * FLAME_AT
-
-
 func strike() -> void:
 	burning = true
 	_spin = 1.0

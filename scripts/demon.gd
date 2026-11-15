@@ -61,7 +61,6 @@ var _gone_left := 0.0
 var _last_known := Vector2.ZERO
 var _investigate := Vector2.ZERO
 var _notice_cd := 0.0
-var _scream_cd := 0.0
 
 var _moving := false
 var _move_speed := 0.0
@@ -331,7 +330,6 @@ func _physics_process(dt: float) -> void:
 	if _moving:
 		_move_speed = scripted_move
 	_notice_cd = maxf(0.0, _notice_cd - dt)
-	_scream_cd = maxf(0.0, _scream_cd - dt)
 	_attack_cd = maxf(0.0, _attack_cd - dt)
 	_ignore = maxf(0.0, _ignore - dt)
 	_retreat = maxf(0.0, _retreat - dt)
@@ -351,7 +349,7 @@ func _physics_process(dt: float) -> void:
 	var reachable = not main.chalk.is_separated(pos2, pp)
 	if reachable and _retreat <= 0.0:
 		_ignore = 0.0
-	_update_trap(dt, pp)
+	_update_trap(pp)
 
 	if state == S.PATROL:
 		_do_patrol(dt, reachable)
@@ -631,7 +629,7 @@ func _far_patrol_index(pp: Vector2) -> int:
 
 # Is it standing inside one of your circles while you are outside it?
 # Then the circle has caught it: it is banished at once.
-func _update_trap(dt: float, pp: Vector2) -> void:
+func _update_trap(pp: Vector2) -> void:
 	var loop = main.chalk.loop_containing(pos2)
 	if loop == null or Geometry2D.is_point_in_polygon(pp, loop["pts"]):
 		return     # (you are in the same circle: that is not a trap, that is dinner)
@@ -678,15 +676,6 @@ func _respawn() -> void:
 	_dissolve_target = 0.0
 	_apply_transform()
 	main.on_demon_returned()
-
-
-# Used by the ending: it comes apart for good.
-func end_dissolve() -> void:
-	_dissolve_target = 1.0
-	if state != S.GONE:
-		_scream()
-	state = S.GONE
-	_gone_left = 99999.0
 
 
 func fade_away() -> void:
@@ -752,7 +741,6 @@ func vanish() -> void:
 # -------------------------------------------------------------- LOOK & SOUND
 
 func _scream() -> void:
-	_scream_cd = randf_range(6.0, 9.0)
 	_scream_t = 0.0
 	main.sfx.play_at("demon_scream", head_position(), 3.0, randf_range(0.92, 1.08))
 	main.on_demon_scream()
