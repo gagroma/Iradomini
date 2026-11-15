@@ -14,7 +14,10 @@ func _ready() -> void:
 	print("2. after the door: ", m.scene_file_path, "  level meta ", Engine.get_meta("ira_level"))
 	await tree.create_timer(2.0).timeout
 	m.show_win()                             # pretend the altar ritual is finished
-	await tree.create_timer(4.0).timeout
+	await tree.create_timer(1.5).timeout
+	print("   blessing choice shown: ", m._blessings.visible, "  demons on this level: ", m.demons.size())
+	m._after_win()                           # ...and a blessing is chosen
+	await tree.create_timer(3.0).timeout
 	var p2 = tree.current_scene
 	print("3. after the win: ", p2.scene_file_path, "  level ", p2.get("level"))
 	tree.quit()

@@ -25,6 +25,7 @@ extends Node3D
 # player.gd / level.gd call tick() every frame, after moving the candle.
 
 const T = preload("res://scripts/tuning.gd")
+const Boons = preload("res://scripts/boons.gd")
 const MODEL = preload("res://assets/models/candle.glb")
 const FLAME_SHADER = preload("res://shaders/candle_flame.gdshader")
 const WAX_SHADER = preload("res://shaders/candle_wax.gdshader")
@@ -248,7 +249,7 @@ func tick(dt: float, fear: float) -> void:
 
 	# --- burning down ---
 	if lit and burns:
-		left -= dt / T.CANDLE_BURN_TIME * (1.0 + T.CANDLE_WIND_BURN * minf(wind, 1.0))
+		left -= dt / Boons.candle_burn_time() * (1.0 + T.CANDLE_WIND_BURN * minf(wind, 1.0))
 		if left <= 0.0:
 			left = 0.0
 			_go_out(base)

@@ -91,7 +91,7 @@ var _eye_light: SpotLight3D
 var _breath = null
 
 
-func setup(main_node) -> void:
+func setup(main_node, index := 0, count := 1) -> void:
 	main = main_node
 	var model = Models.wailer()
 	_root = model["root"]
@@ -115,6 +115,10 @@ func setup(main_node) -> void:
 	_breath = main.sfx.loop_at("demon_breath", self, -4.0)
 	pos2 = main.level.demon_start
 	_patrol_i = _nearest_patrol_index()
+	if index > 0:
+		var points = main.level.patrol_points
+		_patrol_i = (_patrol_i + int(points.size() * index / float(count))) % points.size()
+		pos2 = points[_patrol_i]
 	_apply_transform()
 
 
@@ -743,7 +747,7 @@ func vanish() -> void:
 func _scream() -> void:
 	_scream_t = 0.0
 	main.sfx.play_at("demon_scream", head_position(), 3.0, randf_range(0.92, 1.08))
-	main.on_demon_scream()
+	main.on_demon_scream(distance_to_player())
 
 
 func _apply_transform() -> void:

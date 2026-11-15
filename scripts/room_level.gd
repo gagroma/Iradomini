@@ -52,6 +52,8 @@ var crossing_rect := Rect2()
 var door_pos := Vector3.ZERO
 var entrance_leaf: Node3D
 var intro_crates: Node3D
+var extra_rooms := 0
+var relic_hardness := 0.0
 var _outside: Node3D
 
 # --- the plan ---
@@ -119,8 +121,8 @@ func plan_wings(seed_value: int, cathedral: Rect2, portals: Array[Vector2]) -> R
 				complete = false
 				break
 		if complete:
-			for i in 3:
-				var tpl := "room1_normal" if rng.randf() < 0.5 else "room7_corridor_short"
+			for i in 3 + extra_rooms:
+				var tpl := "room1_normal" if rng.randf() < 0.55 else ("room5_normal_wide" if rng.randf() < 0.5 else "room7_corridor_short")
 				_attach(tpl, [0, 1, 2, 3], _open_doors())
 			if not _attach_end(cathedral.get_center()):
 				continue
@@ -224,9 +226,9 @@ func _plan() -> bool:
 			var size := Vector2(18.0, 20.0) if absf(dir.x) > 0.5 else Vector2(20.0, 18.0)
 			reserved.append(Rect2(d["pos"] + dir * 9.2 - size * 0.5, size))
 	var pieces := ["room4_big_hall"]
-	for i in rng.randi_range(3, 4):
+	for i in rng.randi_range(3, 4) + extra_rooms / 2:
 		pieces.append("room1_normal" if rng.randf() < 0.5 else "room5_normal_wide")
-	for i in rng.randi_range(2, 4):
+	for i in rng.randi_range(2, 4) + extra_rooms - extra_rooms / 2:
 		pieces.append("room6_corridor_long" if rng.randf() < 0.5 else "room7_corridor_short")
 	_shuffle(pieces)
 	# a corridor first keeps START from opening straight into a big room
@@ -787,6 +789,10 @@ func _place_relics(normal_rooms_only := false) -> void:
 					fallback_spots.append([i, Vector3(p.x, 0.0, p.y)])
 	_shuffle(spots)
 	_shuffle(fallback_spots)
+	if relic_hardness > 0.0:
+		var origin := _relic_origin()
+		var score := func(s): return s[1].distance_to(origin) * relic_hardness + _rng_score(s) * (1.0 - relic_hardness) * 30.0
+		spots.sort_custom(func(a, b): return score.call(a) > score.call(b))
 	spots.append_array(fallback_spots)
 	var kinds := ["chalice", "cross", "censer", "book"]
 	var used_areas := {}
@@ -805,6 +811,16 @@ func _place_relics(normal_rooms_only := false) -> void:
 				continue
 			used_areas[area] = true
 			relic_spots.append({"pos": s[1], "kind": kinds[relic_spots.size()], "chapel": rooms[s[0]]["kind"] == "normal"})
+
+
+func _relic_origin() -> Vector3:
+	if not rooms.is_empty() and rooms[0]["kind"] == "start":
+		return Vector3(rooms[0]["pos"].x, 0.0, rooms[0]["pos"].y)
+	return Vector3.ZERO
+
+
+func _rng_score(s: Array) -> float:
+	return fposmod(sin(s[1].x * 12.9898 + s[1].z * 78.233) * 43758.5453, 1.0)
 
 
 func _relic_floor_is_clear(p: Vector2) -> bool:
@@ -864,10 +880,11 @@ func near_cover(p: Vector2, dist: float) -> bool:
 	return false
 
 
-func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, _viewer := Vector2.INF) -> void:
+func update_candles(prowling: PackedVector2Array, dt: float, sfx, _viewer := Vector2.INF) -> void:
 	_time += dt
+	var demon_active := not prowling.is_empty()
 	for c in candles:
-		var d = c["pos2"].distance_to(demon_pos)
+		var d = nearest(c["pos2"], prowling)
 		var near = 0.0
 		if demon_active:
 			near = clampf(1.0 - (d - 3.5) / 5.0, 0.0, 1.0)
@@ -883,3 +900,10 @@ func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, _vie
 				c["lit"] = true
 				c["candle"].relight()
 		c["candle"].tick(dt, near)
+
+
+static func nearest(p: Vector2, points: PackedVector2Array) -> float:
+	var best := INF
+	for q in points:
+		best = minf(best, p.distance_to(q))
+	return best

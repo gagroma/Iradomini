@@ -29,7 +29,7 @@ func _ready() -> void:
 	center.add_child(_box)
 	_box.add_child(UIStyle.panel(Vector2.ZERO, PANEL_SIZE))
 	_label("YOU WIN", 12, 28)
-	_label("The demon is cast out.\nThe church is silent at last.", 46, 11, UIStyle.BONE * Color(1, 1, 1, 0.75))
+	_label("All five churches are cleansed.\nThe last candle holds.", 46, 11, UIStyle.BONE * Color(1, 1, 1, 0.75))
 	_again = _button("Play Again", 84, func(): again_requested.emit())
 	_quit = _button("Quit to Title", 112, func(): title_requested.emit())
 

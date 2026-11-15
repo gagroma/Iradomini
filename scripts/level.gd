@@ -19,6 +19,7 @@ const DOOR = preload("res://assets/props/door.glb")
 const DOOR_FRAME = preload("res://assets/kit/wall_2m_door.glb")
 const CRATES = preload("res://assets/props/crates.glb")
 const STATUE = preload("res://assets/props/statue.glb")
+const WARDROBE = preload("res://assets/props/wardrobe.glb")
 const KIT_STONE = preload("res://materials/kit/kit_stone.tres")
 const KIT_WALL = preload("res://assets/kit/wall_2m.glb")
 const PULPIT = preload("res://assets/props/pulpit.glb")
@@ -81,6 +82,8 @@ var _chapels := []
 var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
 var _frame := 0
+var extra_rooms := 0
+var relic_hardness := 0.0
 var _wings
 var _altar_beacon: OmniLight3D
 var _kit_wall_mat: ShaderMaterial
@@ -100,6 +103,8 @@ func build(seed_value: int, cathedral_scenario := false) -> void:
 	var bounds := Rect2(-13.5, z_end - 18.5, 27.0, 25.0 - z_end)
 	if cathedral_scenario:
 		_wings = RoomLevel.new()
+		_wings.extra_rooms = extra_rooms
+		_wings.relic_hardness = relic_hardness
 		add_child(_wings)
 		var portals: Array[Vector2] = []
 		for ch in _chapels:
@@ -117,6 +122,7 @@ func build(seed_value: int, cathedral_scenario := false) -> void:
 	_decorate()
 	if _wings != null:
 		_wall_candles()
+		_aisle_wardrobes()
 		_wings.build_wings(nav)
 		relic_spots = _wings.relic_spots
 		_take_altar(_wings)
@@ -761,6 +767,26 @@ func _wall_candles() -> void:
 		_candle(p, 1.7, 5.5, false, true)
 
 
+func _aisle_wardrobes() -> void:
+	var slots := []
+	for b in range(bays):
+		for side in [-1.0, 1.0]:
+			slots.append([b, side])
+	for i in range(slots.size() - 1, 0, -1):
+		var j = _deco.randi_range(0, i)
+		var tmp = slots[i]
+		slots[i] = slots[j]
+		slots[j] = tmp
+	for slot in slots.slice(0, 2):
+		var side: float = slot[1]
+		var at = Vector3(side * 7.65, 0.0, _bay_center(slot[0]) - 1.6)
+		var w: Node3D = WARDROBE.instantiate()
+		add_child(w)
+		w.global_transform = Transform3D(Basis(Vector3.UP, -side * PI * 0.5), at)
+		_collider(at + Vector3(0.0, 1.19, 0.0), Vector3(0.68, 2.38, 1.34))
+		_obstacle(at.x - 0.34, at.z - 0.67, at.x + 0.34, at.z + 0.67)
+
+
 func _pedestal(za: float) -> void:
 	for i in 3:
 		var w = 3.2 - i * 0.7
@@ -852,14 +878,15 @@ func advance_ritual(placed: int) -> void:
 
 
 # GDD "Vsegda sebya vydayot": candles go out where the demon walks.
-func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, viewer := Vector2.INF) -> void:
+func update_candles(prowling: PackedVector2Array, dt: float, sfx, viewer := Vector2.INF) -> void:
 	if _wings != null:
-		_wings.update_candles(demon_pos, demon_active, dt, sfx)
+		_wings.update_candles(prowling, dt, sfx)
 	_time += dt
 	_frame += 1
+	var demon_active := not prowling.is_empty()
 	for i in candles.size():
 		var c = candles[i]
-		var d = c["pos2"].distance_to(demon_pos)
+		var d = RoomLevel.nearest(c["pos2"], prowling)
 		# the flame shudders as the demon comes near, then it goes out
 		var near = 0.0
 		if demon_active:

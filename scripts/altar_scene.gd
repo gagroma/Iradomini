@@ -3,6 +3,7 @@ extends Node
 const PlayerScript = preload("res://scripts/player.gd")
 const PrayerBook = preload("res://scripts/prayer_book.gd")
 const UIStyle = preload("res://scripts/ui_style.gd")
+const SkipHint = preload("res://scripts/skip_hint.gd")
 
 const SPOTS := {
 	"cross": Vector2(0.0, -0.22),
@@ -52,6 +53,7 @@ var _canvas: CanvasLayer
 var _flags := {}
 var _turn_from := 0.0
 var _turn_to := 0.0
+var _hint: Node
 
 
 static func spot_of(level, kind: String) -> Transform3D:
@@ -89,6 +91,9 @@ func _begin(main_node) -> void:
 	_altar = Vector3(main.level.altar_pos.x, 0.0, main.level.altar_pos.y)
 	player.frozen = true
 	player.collision_mask = 0
+	_hint = SkipHint.attach(self, main)
+	if _hint != null:
+		_hint.skipped.connect(_skip)
 
 
 func _plan_route(at: Vector3) -> void:
@@ -198,11 +203,7 @@ func _place_step(dt: float) -> void:
 			node.global_transform = g
 			_right(_hand_on(g))
 			if _t >= 0.8:
-				node.global_transform = _spot
-				main.sfx.play_at("place", _spot.origin, -2.0)
-				relic["light"].global_position = _spot.origin + Vector3(0.0, 0.35, 0.0) + _front * 0.2
-				relic["light"].light_energy = 0.35
-				relic["light"].visible = true
+				_set_down()
 				_go("settle")
 		"settle":
 			_right(_hand_on(_spot))
@@ -295,6 +296,9 @@ func _pray_step(dt: float) -> void:
 				_go("done")
 		"done":
 			if _once("win"):
+				if _hint != null:
+					_hint.queue_free()
+					_hint = null
 				main.show_win()
 
 
@@ -397,6 +401,7 @@ func _read(dt: float) -> void:
 
 
 func _amen_now() -> void:
+	_flags["amen"] = true
 	_show_line("Amen.")
 	main.demon.vanish()
 	main.scripted_fear = 0.0
@@ -409,6 +414,51 @@ func _amen_now() -> void:
 		create_tween().tween_property(_murmur, "volume_db", -60.0, 0.6)
 	create_tween().tween_property(_subs, "modulate:a", 0.0, 1.2).set_delay(1.4)
 	_go("vanish")
+
+
+func _set_down() -> void:
+	var node: Node3D = relic["node"]
+	node.global_transform = _spot
+	node.visible = true
+	main.sfx.play_at("place", _spot.origin, -2.0)
+	relic["light"].global_position = _spot.origin + Vector3(0.0, 0.35, 0.0) + _front * 0.2
+	relic["light"].light_energy = 0.35
+	relic["light"].visible = true
+
+
+func _skip() -> void:
+	if main == null:
+		return
+	if not praying:
+		if _phase in ["walk", "raise", "set"]:
+			_set_down()
+		player.chalk_stick.visible = true
+		_finish()
+		return
+	if _phase == "done":
+		return
+	if not _flags.has("amen"):
+		if _flags.has("appear"):
+			main.demon.vanish()
+		main.chalk.close_decor()
+		main.scripted_fear = 0.0
+		main.sfx.play("ending", -4.0)
+	if _murmur != null:
+		_murmur.queue_free()
+		_murmur = null
+	if _canvas != null:
+		_canvas.queue_free()
+		_canvas = null
+	if _book != null:
+		_book.queue_free()
+		_book = null
+	if _book_relic.has("node"):
+		_book_relic["node"].visible = false
+		_book_relic["light"].visible = false
+	player.right_hand.visible = false
+	player.auto_move = Vector3.ZERO
+	player.pitch_target = -0.1
+	_go("done")
 
 
 func _abort() -> void:

@@ -13,6 +13,7 @@ extends Node3D
 # F4 = lights on / fog off, F11 = full screen, Esc = pause.
 
 const T = preload("res://scripts/tuning.gd")
+const Boons = preload("res://scripts/boons.gd")
 const Level = preload("res://scripts/level.gd")
 const RoomLevel = preload("res://scripts/room_level.gd")
 const Chalk = preload("res://scripts/chalk.gd")
@@ -23,10 +24,12 @@ const Sfx = preload("res://scripts/sfx.gd")
 const Models = preload("res://scripts/models.gd")
 const PauseMenu = preload("res://scripts/pause_menu.gd")
 const WinScreen = preload("res://scripts/win_screen.gd")
+const BlessingScreen = preload("res://scripts/blessing_screen.gd")
 const AltarScene = preload("res://scripts/altar_scene.gd")
 const DeathScene = preload("res://scripts/death_scene.gd")
 const DoorIntro = preload("res://scripts/door_intro.gd")
 const Warmup = preload("res://scripts/warmup.gd")
+const WardrobeHide = preload("res://scripts/wardrobe_hide.gd")
 const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
 const USE_ROOM_LEVEL := T.ROOM_LEVEL and not T.CATHEDRAL_SCENARIO
@@ -38,6 +41,8 @@ var level
 var chalk
 var player
 var demon
+var demons := []
+var level_no := 1
 var hud
 var sfx
 var post: ShaderMaterial
@@ -73,6 +78,9 @@ var _bright := false
 var _interaction_target: Variant
 var _pause_menu: PauseMenu
 var _win: WinScreen
+var _blessings: BlessingScreen
+var wardrobes := []
+var hiding = null
 var altar_busy := false
 var scripted_fear := -1.0
 const PLACE_ORDER := ["cross", "chalice", "censer", "book"]
@@ -93,7 +101,10 @@ func _ready() -> void:
 	add_child(sfx)
 	_make_environment()
 
+	level_no = clampi(Engine.get_meta("ira_level", 1), 1, T.LEVELS)
 	level = RoomLevel.new() if USE_ROOM_LEVEL else Level.new()
+	level.extra_rooms = T.LEVEL_EXTRA_ROOMS[level_no - 1]
+	level.relic_hardness = float(level_no - 1) / float(T.LEVELS - 1)
 	add_child(level)
 	if USE_ROOM_LEVEL:
 		level.build(_seed)
@@ -123,17 +134,24 @@ func _ready() -> void:
 		intro = true
 		_door_done = true
 
-	demon = Demon.new()
-	add_child(demon)
-	demon.setup(self)
-	if not T.DEMON_ENABLED:
-		demon.switch_off()
+	var count: int = T.LEVEL_DEMONS[level_no - 1]
+	for i in count:
+		var d = Demon.new()
+		add_child(d)
+		demons.append(d)
+		d.setup(self, i, count)
+		if not T.DEMON_ENABLED:
+			d.switch_off()
+	demon = demons[0]
 
 	_make_post()
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup()
 	_spawn_relics()
+	for n in level.find_children("*", "Node3D", true, false):
+		if n.scene_file_path.ends_with("wardrobe.glb") and n.is_visible_in_tree():
+			wardrobes.append(n)
 	_pause_menu = PauseMenu.new()
 	add_child(_pause_menu)
 	_pause_menu.resume_requested.connect(_resume)
@@ -141,8 +159,12 @@ func _ready() -> void:
 	_pause_menu.title_requested.connect(_return_to_title)
 	_win = WinScreen.new()
 	add_child(_win)
-	_win.again_requested.connect(_restart)
+	_win.again_requested.connect(_after_win)
 	_win.title_requested.connect(_return_to_title)
+	_blessings = BlessingScreen.new()
+	_blessings.sfx = sfx
+	add_child(_blessings)
+	_blessings.picked.connect(_after_win)
 
 	_drone = sfx.loop("drone", -30.0 if candle_intro else -13.0)
 	_choir = sfx.loop("choir_rev", -60.0)
@@ -196,7 +218,9 @@ func end_intro() -> void:
 	player.frozen = false
 	hud.show()
 	if T.CATHEDRAL_SCENARIO:
-		hud.show_note("Find the altar, then seek four relics in the side passages.", 8.0)
+		hud.show_note("Level %d of %d  ·  Find the altar, then seek four relics in the side passages." % [level_no, T.LEVELS], 8.0)
+	else:
+		hud.show_note("Level %d of %d" % [level_no, T.LEVELS], 5.0)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -252,8 +276,8 @@ func _spawn_relics() -> void:
 		var light = OmniLight3D.new()
 		light.position = spot["pos"] + Vector3(0.0, 0.3, 0.0)
 		light.light_color = Color(1.0, 0.85, 0.5)
-		light.light_energy = 0.5
-		light.omni_range = 2.2
+		light.light_energy = lerpf(0.5, 0.14, level.relic_hardness)
+		light.omni_range = lerpf(2.2, 1.1, level.relic_hardness)
 		add_child(light)
 		relics.append({
 			"node": node,
@@ -312,7 +336,7 @@ func _physics_process(_dt: float) -> void:
 
 # What would E do right now? Returns a Dictionary, or null for "nothing".
 func _find_target() -> Variant:
-	if candle_intro or intro or altar_busy or game_state != "play" or not player.alive:
+	if candle_intro or intro or altar_busy or hiding != null or game_state != "play" or not player.alive:
 		return null
 	var eye = player.cam.global_position
 	var forward = -player.cam.global_transform.basis.z
@@ -329,6 +353,13 @@ func _find_target() -> Variant:
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
+	for w in wardrobes:
+		var front: Vector3 = w.global_basis.z
+		var door = w.global_position + Vector3(front.x, 0.0, front.z).normalized() * 0.45
+		if pp.distance_to(Vector2(door.x, door.z)) < 1.5:
+			var to_w: Vector3 = (w.global_position + Vector3(0.0, 1.2, 0.0) - eye).normalized()
+			if forward.dot(to_w) > 0.9 and front.dot(Vector3(eye.x - w.global_position.x, 0.0, eye.z - w.global_position.z)) > 0.0:
+				return {"type": "wardrobe", "w": w}
 	var can_pray = placed >= T.RELICS_NEEDED
 	if (carried > 0 or can_pray) and pp.distance_to(level.altar_pos) < 2.7:
 		var to_altar: Vector3 = (level.altar_top - eye).normalized()
@@ -344,6 +375,9 @@ func _can_see_target(eye: Vector3, point: Vector3) -> bool:
 
 
 func _interact() -> void:
+	if hiding != null:
+		hiding.leave()
+		return
 	if game_state != "play" or not player.alive or _interaction_target == null:
 		return
 	var target = _interaction_target
@@ -352,6 +386,10 @@ func _interact() -> void:
 		_take_relic(target["relic"])
 	elif target["type"] == "altar":
 		_place_next()
+	elif target["type"] == "wardrobe":
+		hiding = WardrobeHide.new()
+		add_child(hiding)
+		hiding.start(self, target["w"])
 	else:
 		_begin_prayer()
 
@@ -403,7 +441,7 @@ func altar_done() -> void:
 		hud.show_note("All relics are in place  ·  Read the prayer", 5.0)
 		if T.CATHEDRAL_SCENARIO:
 			var front: Vector3 = level.altar_front
-			demon.hear(level.altar_pos + Vector2(front.x, front.z) * 3.8, 200.0)
+			hear_all(level.altar_pos + Vector2(front.x, front.z) * 3.8, 200.0)
 		return
 	hud.show_note("Relics on the altar  %d/%d" % [placed, T.RELICS_NEEDED])
 
@@ -413,8 +451,9 @@ func _begin_prayer() -> void:
 	game_state = "prayer"
 	chalk.release()
 	hud.hide()
-	if demon.is_active():
-		demon.fade_away()
+	for d in demons:
+		if d.is_active():
+			d.fade_away()
 	var scene = AltarScene.new()
 	add_child(scene)
 	scene.pray(self)
@@ -422,19 +461,65 @@ func _begin_prayer() -> void:
 
 func show_win() -> void:
 	game_state = "won"
-	# levels go on: walk the passage to the next, harder church instead of a "play again" screen
-	Engine.set_meta("ira_level", T.level_number() + 1)
-	_fade_target = 1.0
-	await get_tree().create_timer(1.6).timeout
-	get_tree().change_scene_to_file("res://scenes/passage.tscn")
+	hud.hide()
+	if level_no < T.LEVELS:
+		_blessings.reveal(level_no, T.LEVELS)
+	else:
+		_win.reveal()
+
+
+func _after_win(pick := "") -> void:
+	if level_no < T.LEVELS:
+		if pick != "":
+			Boons.add(pick)
+		Engine.set_meta("ira_level", level_no + 1)
+		# the next church is down the road: walk it (scenes/passage.tscn), then the next level starts
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/passage.tscn")
+	else:
+		Boons.clear()
+		Engine.set_meta("ira_level", 1)
+		_restart()
+
+
+func on_ward_broken() -> void:
+	_flash = 0.6
+	sfx.play("hit", -2.0, 1.3)
+	sfx.play("banish", -10.0, 1.5)
+	var left: int = player.wards
+	hud.show_note("The medallion takes the blow" + ("" if left == 0 else "  ·  %d left" % left), 4.0)
+
+
+func hear_all(at: Vector2, radius: float) -> bool:
+	var heard := false
+	for d in demons:
+		if d.hear(at, radius):
+			heard = true
+	return heard
+
+
+func nearest_demon():
+	var best = demons[0]
+	for d in demons:
+		if d.is_active() and (not best.is_active() or d.distance_to_player() < best.distance_to_player()):
+			best = d
+	return best
 
 
 func flash(amount: float) -> void:
 	_flash = maxf(_flash, amount)
 
 
+func wardrobe_done() -> void:
+	hiding = null
+
+
 func _prompt_text(target: Variant) -> String:
+	if hiding != null:
+		return "E  ·  Leave the wardrobe" if hiding.is_inside() else ""
 	if target != null:
+		if target["type"] == "wardrobe":
+			return "E  ·  Hide in the wardrobe"
 		if target["type"] == "relic":
 			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
 		if target["type"] == "pray":
@@ -451,10 +536,10 @@ func _prompt_text(target: Variant) -> String:
 
 # One footstep. GDD "Vospriyatie": step 2 m, run 10 m, more with every relic.
 func player_step(running: bool, crouching: bool) -> void:
-	var radius = T.NOISE_STEP + T.NOISE_PER_RELIC_STEP * player.relics_found
+	var radius = (T.NOISE_STEP + T.NOISE_PER_RELIC_STEP * player.relics_found) * Boons.noise_scale()
 	var volume = -20.0
 	if running:
-		radius = T.NOISE_RUN + T.NOISE_PER_RELIC_RUN * player.relics_found
+		radius = (T.NOISE_RUN + T.NOISE_PER_RELIC_RUN * player.relics_found) * Boons.noise_scale()
 		volume = -9.0
 	elif crouching:
 		radius = T.NOISE_CROUCH
@@ -462,7 +547,7 @@ func player_step(running: bool, crouching: bool) -> void:
 	sfx.play("step1" if randf() < 0.5 else "step2", volume, randf_range(0.9, 1.1))
 	var heard = false
 	if demon_grace <= 0.0:
-		heard = demon.hear(player.pos2(), radius)
+		heard = hear_all(player.pos2(), radius)
 	# arcs on screen: crouch 1, walk 2, run 4, a relic or two more
 	hud.stealth.step(clampi(int(round(sqrt(radius) * 1.25)), 1, 5), heard)
 
@@ -495,10 +580,10 @@ func on_demon_returned() -> void:
 	hud.show_note("It has returned", 3.0)
 
 
-func on_demon_scream() -> void:
+func on_demon_scream(distance: float) -> void:
 	fear = maxf(fear, 0.8)
 	# the scream shakes the world: hard up close, a tremor from across the church
-	var near = clampf(1.0 - demon.distance_to_player() / 16.0, 0.0, 1.0)
+	var near = clampf(1.0 - distance / 16.0, 0.0, 1.0)
 	player.shake(0.15 + 0.75 * near)
 
 
@@ -527,6 +612,9 @@ func _return_to_title() -> void:
 	if result == OK:
 		tree.paused = false
 		Engine.remove_meta("ira_seed")
+		if Engine.has_meta("ira_level"):
+			Engine.remove_meta("ira_level")
+		Boons.clear()
 	else:
 		push_error("Could not return to the title (%s)." % error_string(result))
 
@@ -540,8 +628,9 @@ func _process(dt: float) -> void:
 
 	# GDD: effects grow from 0 to 1 with how close the demon is
 	var target_fear = 0.0
-	if demon.is_active() and game_state == "play":
-		target_fear = clampf(1.0 - demon.distance_to_player() / T.FEAR_DISTANCE, 0.0, 1.0)
+	var closest = nearest_demon()
+	if closest.is_active() and game_state == "play":
+		target_fear = clampf(1.0 - closest.distance_to_player() / T.FEAR_DISTANCE, 0.0, 1.0)
 	if scripted_fear >= 0.0:
 		target_fear = scripted_fear
 	fear = lerpf(fear, target_fear, 1.0 - exp(-3.0 * dt))
@@ -553,13 +642,13 @@ func _process(dt: float) -> void:
 	if not _door_done and _time > 2.5:
 		_door_done = true
 		sfx.play_at("door_slam", level.door_pos, 4.0)
-		demon.hear(slam_point(), 200.0)
+		hear_all(slam_point(), 200.0)
 
 	if _clatter_wait > 0.0:
 		_clatter_wait -= dt
 		if _clatter_wait <= 0.0:
 			sfx.play_at("clatter", _clatter_pos, 4.0)
-			demon.hear(Vector2(_clatter_pos.x, _clatter_pos.z), 200.0)
+			hear_all(Vector2(_clatter_pos.x, _clatter_pos.z), 200.0)
 
 	# GDD "Serdtsebienie": louder and faster with fear
 	var beat = fear
@@ -577,7 +666,11 @@ func _process(dt: float) -> void:
 		var want = -19.0 if in_crossing else -60.0
 		_choir.volume_db = lerpf(_choir.volume_db, want, 1.0 - exp(-1.2 * dt))
 
-	level.update_candles(demon.pos2, demon.is_active(), dt, sfx, player.pos2())
+	var prowling := PackedVector2Array()
+	for d in demons:
+		if d.is_active():
+			prowling.append(d.pos2)
+	level.update_candles(prowling, dt, sfx, player.pos2())
 
 	# screen effects
 	_flash = move_toward(_flash, 0.0, dt * 1.6)
@@ -590,18 +683,22 @@ func _process(dt: float) -> void:
 	# hiding narrows and cools the view; being seen puts a red edge round it
 	var playing = game_state == "play"
 	_hide = lerpf(_hide, 1.0 if player.is_hidden_now and playing else 0.0, 1.0 - exp(-6.0 * dt))
-	var aware = demon.awareness() if demon.is_active() and playing else 0
+	var aware = 0
+	if playing:
+		for d in demons:
+			if d.is_active():
+				aware = maxi(aware, d.awareness())
 	_alert = lerpf(_alert, 1.0 if aware == 2 else 0.0, 1.0 - exp(-4.0 * dt))
 	post.set_shader_parameter("hide", _hide)
 	post.set_shader_parameter("alert", _alert)
 	hud.stealth.set_state(aware, player.crouching and playing, player.is_hidden_now and playing)
-	hud.stealth.set_stamina(player.stamina / T.STAMINA_MAX, player.winded)
+	hud.stealth.set_stamina(player.stamina / Boons.stamina_max(), player.winded)
 	hud.set_chalk_supply(chalk.chalk, playing)
 
 	# words on screen
 	hud.set_prompt(_prompt_text(_interaction_target) if playing else "")
 	hud.update_reticle(playing, player.aim_valid, _interaction_target != null, player.erase_progress, dt)
-	var words = "Relics %d/%d" % [carried + placed, T.RELICS_NEEDED]
+	var words = "Level %d/%d  ·  Relics %d/%d" % [level_no, T.LEVELS, carried + placed, T.RELICS_NEEDED]
 	if player.critical:
 		words += "  ·  WOUNDED %d" % int(ceil(player.critical_time))
 	if game_state != "play":
@@ -615,8 +712,10 @@ func _debug_text() -> String:
 		return ""
 	var lines = []
 	lines.append("fps %d   seed %d" % [Engine.get_frames_per_second(), _seed])
-	lines.append("demon %s  %.1f m" % [demon.state_name(), demon.distance_to_player()])
-	lines.append("sees you: %s" % str(demon.sees_player))
+	var closest = nearest_demon()
+	lines.append("level %d  demons %d" % [level_no, demons.size()])
+	lines.append("demon %s  %.1f m" % [closest.state_name(), closest.distance_to_player()])
+	lines.append("sees you: %s" % str(closest.sees_player))
 	lines.append("chalk %.1f m  (+%.1f on floor)" % [chalk.chalk, chalk.locked()])
 	lines.append("circles %d   line %.1f m" % [chalk.loops.size() - 1, chalk.stroke_len])
 	lines.append("fear %.2f   hidden %s" % [fear, str(player.is_hidden_now)])
