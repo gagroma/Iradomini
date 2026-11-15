@@ -2,6 +2,7 @@ extends Node3D
 
 const Models = preload("res://scripts/models.gd")
 const DeathText = preload("res://scripts/death_text.gd")
+const UIStyle = preload("res://scripts/ui_style.gd")
 const BODY = preload("res://assets/models/player_body.glb")
 
 const DISH_R := 0.0575
@@ -41,7 +42,9 @@ var _pew := false
 var _impact := IMPACT
 var _black_at := BLACK_AT
 var _focus := Vector3.ZERO
-var _hint: Label
+var _retry: Button
+var _retry_box: Control
+var _dim := 0.0
 var _start_cam: Transform3D
 var _trauma := 0.0
 var _thud := false
@@ -154,15 +157,16 @@ func start(main_node) -> void:
 	layer.add_child(_black)
 	_text = DeathText.new()
 	layer.add_child(_text)
-	_hint = Label.new()
-	_hint.text = "press any key"
-	_hint.position = Vector2(0, 238)
-	_hint.size = Vector2(480, 12)
-	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint.add_theme_font_size_override("font_size", 8)
-	_hint.add_theme_color_override("font_color", Color(0.6, 0.12, 0.1))
-	_hint.modulate.a = 0.0
-	layer.add_child(_hint)
+	_retry_box = Control.new()
+	_retry_box.position = Vector2(146, 190)
+	_retry_box.size = Vector2(188, 54)
+	_retry_box.modulate.a = 0.0
+	layer.add_child(_retry_box)
+	_retry_box.add_child(UIStyle.panel(Vector2.ZERO, _retry_box.size))
+	_retry = UIStyle.action_button("Try Again", Rect2(19, 14, 150, 26), 17)
+	_retry.disabled = true
+	_retry.pressed.connect(func(): main._restart())
+	_retry_box.add_child(_retry)
 
 
 func _clear_direction(want: Vector3) -> Vector3:
@@ -221,7 +225,7 @@ func _process(dt: float) -> void:
 	var reveal = _black_at + FADE_OUT + BLACK_HOLD
 	var out = smoothstep(_black_at, _black_at + FADE_OUT, _t)
 	var back = smoothstep(reveal, reveal + FADE_IN, _t)
-	_black.color.a = out * (1.0 - back)
+	_black.color.a = maxf(out * (1.0 - back), _dim)
 	if _t < _black_at + FADE_OUT:
 		cam.global_transform = _eye_camera()
 	else:
@@ -235,9 +239,13 @@ func _process(dt: float) -> void:
 	if _t >= reveal + 0.25 and not _text.writing:
 		_text.begin()
 	if _text.done():
-		_hint.modulate.a = 0.5 + 0.35 * sin(_t * 2.5)
-	if _t > reveal + 25.0:
-		main._restart()
+		_dim = move_toward(_dim, 0.93, dt / 1.6)
+		if _dim > 0.55:
+			_retry_box.modulate.a = move_toward(_retry_box.modulate.a, 1.0, dt / 0.6)
+			if _retry.disabled:
+				_retry.disabled = false
+				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+				_retry.grab_focus()
 
 
 func _eye_camera() -> Transform3D:
@@ -354,8 +362,3 @@ func _update_candle(dt: float) -> void:
 	candle.global_transform = Transform3D(b, _c_pos + Vector3(0, bounce, 0))
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not _text.done():
-		return
-	if (event is InputEventKey and event.pressed and not event.echo) or (event is InputEventMouseButton and event.pressed):
-		main._restart()
