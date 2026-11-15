@@ -14,9 +14,8 @@ extends Node3D
 #           back up and it goes.
 #   feint   it comes part of the way, stops out in the dark, and turns back. Or does not.
 #   stand   no music at all. It simply stands on the road ahead of you, and you see its eyes at the
-#           edge of your light. Stop, and lower your eyes until it walks off. Walk into it, or
-#           stare at it, and it has you.
-# Do not look straight at it while it is watching you (listening or standing): it feels your eyes.
+#           edge of your light. Stop and wait until it walks off. Walk into it and it has you.
+# It reacts only to you MOVING while it is close. Looking around is always safe.
 #
 # The wind never quite stops. Now and then a gust rises and takes your light, and when the stalker comes
 # to listen its breath puts it out too. Then there is nothing at all, until you press F and strike a
@@ -117,8 +116,6 @@ var _last_plan := ""
 var _had_stand := false
 var _scare_done := false
 var _noise := 0.0             # seconds you have walked within its hearing
-var _stare := 0.0             # seconds you have looked straight at it while it watches
-var _stare_warned := false
 var _glow: OmniLight3D
 var _figure: Node3D
 var _parts := {}
@@ -403,7 +400,6 @@ func _update_strike(dt: float) -> void:
 			_scare_done = true
 			events.append("stand (as the flame catches)")
 			_start_stand(6.0)
-			_stare = -1.2                # a moment to understand what you are looking at
 
 
 # The scrape and flare of a light being struck carries in the quiet.
@@ -504,12 +500,6 @@ func _make_sound() -> void:
 # How far it is from you for hearing your steps: mostly the distance along the road.
 func _distance() -> float:
 	return Vector2(_t_z - _z, _t_x * 0.4).length()
-
-
-# Are you looking straight at its face?
-func _looking() -> bool:
-	var to := _figure.position + Vector3(0, 2.5, 0) - cam.global_position
-	return (-cam.global_transform.basis.z).angle_to(to) < T.PASSAGE_STARE_ANGLE
 
 
 func _begin_visit() -> void:
@@ -627,8 +617,8 @@ func _update_stalker(dt: float) -> void:
 			if gap < T.PASSAGE_STAND_CATCH:
 				_caught()
 				return
-			# it goes when you have stood still, eyes lowered, long enough
-			if _speed < 0.1 and gap < 10.0 and not _looking():
+			# it goes when you have stood still long enough
+			if _speed < 0.1 and gap < 10.0:
 				_t_timer -= dt
 			if _t_timer <= 0.0:
 				_t_state = "leave"
@@ -682,7 +672,7 @@ func _update_stalker(dt: float) -> void:
 			sfx.play_at("demon_step", _figure.position, -7.0, _rng.randf_range(0.78, 0.92))
 
 	# --- its eyes: seen only when near, brighter while yours are on them
-	var eye_k := smoothstep(11.0, 6.0, dist) * (1.0 + maxf(_stare, 0.0) * 1.5) if present else 0.0
+	var eye_k := smoothstep(11.0, 6.0, dist) if present else 0.0
 	_eye_mat.albedo_color = Color(EYE_COLOR.r * eye_k, EYE_COLOR.g * eye_k, EYE_COLOR.b * eye_k)
 	if _eyes:
 		_eyes.visible = eye_k > 0.02
@@ -700,22 +690,6 @@ func _update_stalker(dt: float) -> void:
 	if _noise > T.PASSAGE_NOTICE_TIME:
 		_caught()
 		return
-
-	# --- it feels you look at it
-	var watched: bool = _t_state in ["stand", "listen", "close"] and dist < T.PASSAGE_STARE_DISTANCE and _looking()
-	if _stare < 0.0:
-		_stare = minf(0.0, _stare + dt)
-	elif watched:
-		_stare += dt
-		if _stare > 0.3 and not _stare_warned:
-			_stare_warned = true
-			sfx.play("demon_notice", -9.0, 0.8)
-	else:
-		_stare = maxf(0.0, _stare - dt * 0.7)
-		if _stare <= 0.0:
-			_stare_warned = false
-	if _stare > T.PASSAGE_STARE_TIME:
-		_caught()
 
 
 # A slow, heavy gait done in code (the model has no animations): hips and knees swing, shoulders
@@ -776,7 +750,7 @@ func _make_screen() -> void:
 	_title = _label(ui, "THE ROAD TO THE NEXT CHURCH  ·  LEVEL %d" % level, 16, Control.PRESET_CENTER_TOP, 34)
 	_prompt = _label(ui, "F  -  strike a light", 9, Control.PRESET_CENTER_BOTTOM, -30)
 	_prompt.modulate.a = 0.0
-	_hint = _label(ui, "Hold W to walk.   When the music is near, stand still.\nIf it turns to you, lower your eyes.", 9, Control.PRESET_CENTER_BOTTOM, -44)
+	_hint = _label(ui, "Hold W to walk.   When the music is near, stand still.\nIf it stands in your way, wait.", 9, Control.PRESET_CENTER_BOTTOM, -44)
 
 
 # ------------------------------------------------------------------------ EVERY FRAME

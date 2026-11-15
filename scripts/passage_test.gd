@@ -2,7 +2,7 @@ extends Node
 # Test tool: bots walk the road between churches and save screenshots.
 #   careful   stops for the music and the eyes, looks down when watched, relights when it is far          -> should arrive
 #   careless  holds W the whole time                                                                   -> should be caught
-#   starer    like careful, but looks straight at it                                                   -> should be caught
+#   starer    like careful, but looks straight at it whenever it is near (looking is safe)            -> should arrive
 #   godot --path . res://scenes/passage_test.tscn -- --shots=<folder> [--level=2] [--runs=1]
 
 var out := ""
@@ -34,6 +34,7 @@ func _run(mode: String, tag: String) -> String:
 	var shots := {}
 	var stops := 0
 	var holding := false
+	var resend := 0.0
 	var result := ""
 	await _wait(3)
 	_save(tag + "_1_start")
@@ -66,11 +67,13 @@ func _run(mode: String, tag: String) -> String:
 			else:
 				p._pitch = lerpf(p._pitch, -0.05, 0.2)
 				p._yaw = lerpf(p._yaw, 0.0, 0.2)
-		if want != holding:
+		resend += get_process_delta_time()
+		if want != holding or resend > 0.4:      # (pressed again now and then: a window that loses focus drops its keys)
+			resend = 0.0
 			_key(KEY_W, want)
-			holding = want
-			if not want:
+			if not want and holding:
 				stops += 1
+			holding = want
 		# screenshots
 		if st == "stand" and gap < 6.5 and p.candle.lit and not shots.has("stand"):
 			shots["stand"] = true
