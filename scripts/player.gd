@@ -58,6 +58,8 @@ var stamina := 5.0          # seconds of running left (tuning.gd STAMINA_MAX)
 var winded := false         # ran out: no running until you get your breath back
 var is_hidden_now := false  # crouched next to cover: the demon cannot see you
 var wards := 0
+var in_wardrobe := false
+var hands_down := 0.0
 var critical := false       # wounded: the next hit kills (GDD "Zdorovie")
 var critical_time := 0.0
 var relics_found := 0       # each one makes your steps louder
@@ -227,7 +229,7 @@ func _physics_process(dt: float) -> void:
 		_step_acc = minf(_step_acc, stride * 0.5)
 
 	# --- hiding: crouch next to a pew, column or altar (GDD "Pryatatsya") ---
-	is_hidden_now = crouching and main.level.near_cover(pos2(), T.COVER_DISTANCE)
+	is_hidden_now = in_wardrobe or (crouching and main.level.near_cover(pos2(), T.COVER_DISTANCE))
 
 	# --- wounded timer (GDD: 20 seconds, then back to normal) ---
 	if critical:
@@ -264,7 +266,7 @@ func _update_camera(dt: float, moved: float) -> void:
 	var fov_target = lerpf(T.FOV_NORMAL, T.FOV_NEAR_DEMON, fear)
 	cam.fov = lerpf(cam.fov, fov_target, 1.0 - exp(-4.0 * dt))
 	# hands sway a little with the walk, and trail a little behind the head
-	hands.position = Vector3(-bob_x * 0.5, -bob_y * 0.5, 0.0)
+	hands.position = Vector3(-bob_x * 0.5, -bob_y * 0.5 - hands_down * 0.42, hands_down * 0.12)
 	var lag_want = Vector2(clampf(pitch_target - pitch, -0.3, 0.3), clampf(yaw_target - yaw, -0.3, 0.3)) * -0.35
 	_lag = _lag.lerp(lag_want, 1.0 - exp(-12.0 * dt))
 	hands.rotation = Vector3(_lag.x, _lag.y, 0.0)

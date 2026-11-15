@@ -23,7 +23,7 @@ extends Node3D
 const G := "res://scenes/groups/"
 # group scene, weight, tall (blocks the deco slot above)
 const LIBRARY := {
-	"wall": [["wall_bookshelf", 3, true], ["wall_wardrobe", 2, true], ["wall_study", 3, false], ["wall_storage", 3, false],
+	"wall": [["wall_bookshelf", 3, true], ["wall_wardrobe", 4, true], ["wall_study", 3, false], ["wall_storage", 3, false],
 		["wall_lectern", 2, false], ["wall_statue", 1, true], ["wall_shrine", 2, true]],
 	"narrow": [["narrow_urns", 2, false], ["narrow_sack", 2, false], ["narrow_candelabrum", 2, false], ["narrow_bones", 1, false]],
 	"deco": [["deco_sconce", 3, false], ["deco_banner", 2, false]],

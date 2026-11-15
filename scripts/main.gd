@@ -29,6 +29,7 @@ const AltarScene = preload("res://scripts/altar_scene.gd")
 const DeathScene = preload("res://scripts/death_scene.gd")
 const DoorIntro = preload("res://scripts/door_intro.gd")
 const Warmup = preload("res://scripts/warmup.gd")
+const WardrobeHide = preload("res://scripts/wardrobe_hide.gd")
 const TITLE_SCENE := "res://menu.tscn"
 const INTERACTION_AIM_DOT := 0.95
 const USE_ROOM_LEVEL := T.ROOM_LEVEL and not T.CATHEDRAL_SCENARIO
@@ -77,6 +78,8 @@ var _interaction_target: Variant
 var _pause_menu: PauseMenu
 var _win: WinScreen
 var _blessings: BlessingScreen
+var wardrobes := []
+var hiding = null
 var altar_busy := false
 var scripted_fear := -1.0
 const PLACE_ORDER := ["cross", "chalice", "censer", "book"]
@@ -145,6 +148,9 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup()
 	_spawn_relics()
+	for n in level.find_children("*", "Node3D", true, false):
+		if n.scene_file_path.ends_with("wardrobe.glb") and n.is_visible_in_tree():
+			wardrobes.append(n)
 	_pause_menu = PauseMenu.new()
 	add_child(_pause_menu)
 	_pause_menu.resume_requested.connect(_resume)
@@ -314,7 +320,7 @@ func _physics_process(_dt: float) -> void:
 
 # What would E do right now? Returns a Dictionary, or null for "nothing".
 func _find_target() -> Variant:
-	if candle_intro or intro or altar_busy or game_state != "play" or not player.alive:
+	if candle_intro or intro or altar_busy or hiding != null or game_state != "play" or not player.alive:
 		return null
 	var eye = player.cam.global_position
 	var forward = -player.cam.global_transform.basis.z
@@ -331,6 +337,13 @@ func _find_target() -> Variant:
 			best_d = flat
 	if best != null:
 		return {"type": "relic", "relic": best}
+	for w in wardrobes:
+		var front: Vector3 = w.global_basis.z
+		var door = w.global_position + Vector3(front.x, 0.0, front.z).normalized() * 0.45
+		if pp.distance_to(Vector2(door.x, door.z)) < 1.5:
+			var to_w: Vector3 = (w.global_position + Vector3(0.0, 1.2, 0.0) - eye).normalized()
+			if forward.dot(to_w) > 0.9 and front.dot(Vector3(eye.x - w.global_position.x, 0.0, eye.z - w.global_position.z)) > 0.0:
+				return {"type": "wardrobe", "w": w}
 	var can_pray = placed >= T.RELICS_NEEDED
 	if (carried > 0 or can_pray) and pp.distance_to(level.altar_pos) < 2.7:
 		var to_altar: Vector3 = (level.altar_top - eye).normalized()
@@ -346,6 +359,9 @@ func _can_see_target(eye: Vector3, point: Vector3) -> bool:
 
 
 func _interact() -> void:
+	if hiding != null:
+		hiding.leave()
+		return
 	if game_state != "play" or not player.alive or _interaction_target == null:
 		return
 	var target = _interaction_target
@@ -354,6 +370,10 @@ func _interact() -> void:
 		_take_relic(target["relic"])
 	elif target["type"] == "altar":
 		_place_next()
+	elif target["type"] == "wardrobe":
+		hiding = WardrobeHide.new()
+		add_child(hiding)
+		hiding.start(self, target["w"])
 	else:
 		_begin_prayer()
 
@@ -471,8 +491,16 @@ func flash(amount: float) -> void:
 	_flash = maxf(_flash, amount)
 
 
+func wardrobe_done() -> void:
+	hiding = null
+
+
 func _prompt_text(target: Variant) -> String:
+	if hiding != null:
+		return "E  ·  Leave the wardrobe" if hiding.is_inside() else ""
 	if target != null:
+		if target["type"] == "wardrobe":
+			return "E  ·  Hide in the wardrobe"
 		if target["type"] == "relic":
 			return "E  ·  Take " + RELIC_NAMES[target["relic"]["kind"]]
 		if target["type"] == "pray":

@@ -19,6 +19,7 @@ const DOOR = preload("res://assets/props/door.glb")
 const DOOR_FRAME = preload("res://assets/kit/wall_2m_door.glb")
 const CRATES = preload("res://assets/props/crates.glb")
 const STATUE = preload("res://assets/props/statue.glb")
+const WARDROBE = preload("res://assets/props/wardrobe.glb")
 const KIT_STONE = preload("res://materials/kit/kit_stone.tres")
 const KIT_WALL = preload("res://assets/kit/wall_2m.glb")
 const PULPIT = preload("res://assets/props/pulpit.glb")
@@ -121,6 +122,7 @@ func build(seed_value: int, cathedral_scenario := false) -> void:
 	_decorate()
 	if _wings != null:
 		_wall_candles()
+		_aisle_wardrobes()
 		_wings.build_wings(nav)
 		relic_spots = _wings.relic_spots
 		_take_altar(_wings)
@@ -763,6 +765,26 @@ func _wall_candles() -> void:
 		_box(p + Vector3(-inward * 0.08, -0.03, 0.0), Vector3(0.2, 0.05, 0.2), "wood", false)
 		_box(p + Vector3(-inward * 0.15, -0.2, 0.0), Vector3(0.05, 0.35, 0.05), "wood", false)
 		_candle(p, 1.7, 5.5, false, true)
+
+
+func _aisle_wardrobes() -> void:
+	var slots := []
+	for b in range(bays):
+		for side in [-1.0, 1.0]:
+			slots.append([b, side])
+	for i in range(slots.size() - 1, 0, -1):
+		var j = _deco.randi_range(0, i)
+		var tmp = slots[i]
+		slots[i] = slots[j]
+		slots[j] = tmp
+	for slot in slots.slice(0, 2):
+		var side: float = slot[1]
+		var at = Vector3(side * 7.65, 0.0, _bay_center(slot[0]) - 1.6)
+		var w: Node3D = WARDROBE.instantiate()
+		add_child(w)
+		w.global_transform = Transform3D(Basis(Vector3.UP, -side * PI * 0.5), at)
+		_collider(at + Vector3(0.0, 1.19, 0.0), Vector3(0.68, 2.38, 1.34))
+		_obstacle(at.x - 0.34, at.z - 0.67, at.x + 0.34, at.z + 0.67)
 
 
 func _pedestal(za: float) -> void:
