@@ -63,13 +63,11 @@ var demon_start := Vector2.ZERO
 var altar_pos := Vector2.ZERO
 var altar_top := Vector3.ZERO
 var altar_circle := PackedVector2Array()
-var altar_yaw := 0.0
 var altar_front := Vector3.BACK
 var altar_way_in := Vector2.ZERO
 var altar_way_dir := Vector2.ZERO
 var narthex_poly := PackedVector2Array()
 var crossing_rect := Rect2()
-var window_pos := Vector3.ZERO
 var door_pos := Vector3(0.0, 1.5, 5.8)
 var entrance_leaf: Node3D
 var intro_crates: Node3D
@@ -82,9 +80,13 @@ var pew_backs := []
 var _chapels := []
 var _deco := RandomNumberGenerator.new()   # looks only, so the layout of a seed stays the same
 var _time := 0.0
+var _frame := 0
 var _wings
 var _altar_beacon: OmniLight3D
 var _kit_wall_mat: ShaderMaterial
+var _kit_wall_mesh: Mesh
+var _kit_wall_local := Transform3D.IDENTITY
+var _outside: Node3D
 var _nave_lights: Array[SpotLight3D] = []
 
 
@@ -163,6 +165,11 @@ func _make_materials() -> void:
 		stone.set_shader_parameter("tone_scale", 3.4)
 		_kit_wall_mat = KIT_STONE.duplicate()
 		_kit_wall_mat.set_shader_parameter("tone_scale", 3.0)
+		var sample: Node3D = KIT_WALL.instantiate()
+		var part: MeshInstance3D = sample.find_children("*", "MeshInstance3D", true, false)[0]
+		_kit_wall_mesh = part.mesh
+		_kit_wall_local = part.transform
+		sample.free()
 		var flags = KIT_FLOOR.duplicate()
 		flags.set_shader_parameter("tone_scale", 2.8)
 		for key in ["wall", "stone", "plinth"]:
@@ -295,16 +302,21 @@ func _wall_piece(center: Vector3, size: Vector3, solid: bool) -> void:
 	var h = size.y / rows
 	var turn = Basis.IDENTITY if along_x else Basis(Vector3.UP, PI * 0.5)
 	var basis = turn * Basis.from_scale(Vector3(w / 2.0, h / 4.5, thick / 0.62))
+	var batch = MultiMesh.new()
+	batch.transform_format = MultiMesh.TRANSFORM_3D
+	batch.mesh = _kit_wall_mesh
+	batch.instance_count = n * rows
 	for i in n:
 		var off = -length * 0.5 + w * (i + 0.5)
 		for r in rows:
-			var piece: Node3D = KIT_WALL.instantiate()
-			for mi in piece.find_children("*", "MeshInstance3D", true, false):
-				mi.material_override = _kit_wall_mat
-			add_child(piece)
-			var at = center + (Vector3(off, 0.0, 0.0) if along_x else Vector3(0.0, 0.0, off))
-			at.y = center.y - size.y * 0.5 + h * r
-			piece.transform = Transform3D(basis, at)
+			var at = Vector3(off, 0.0, 0.0) if along_x else Vector3(0.0, 0.0, off)
+			at.y = -size.y * 0.5 + h * r
+			batch.set_instance_transform(i * rows + r, Transform3D(basis, at) * _kit_wall_local)
+	var walls = MultiMeshInstance3D.new()
+	walls.multimesh = batch
+	walls.material_override = _kit_wall_mat
+	walls.position = center
+	add_child(walls)
 
 
 # One oak pew (model: tools/make_pew.py). Old pews never stand perfectly
@@ -502,9 +514,9 @@ func _entrance(slot: Transform3D) -> void:
 	intro_crates = crates
 	_collider(Vector3(3.35, 0.55, 4.85), Vector3(0.8, 1.1, 0.8))
 	_obstacle(2.95, 4.45, 3.75, 5.25)
-	var outside = Exterior.new()
-	add_child(outside)
-	outside.build(Vector3(0.0, 0.0, 5.8), Vector3(0.0, 0.0, 1.0), _deco.randi())
+	_outside = Exterior.new()
+	add_child(_outside)
+	_outside.build(Vector3(0.0, 0.0, 5.8), Vector3(0.0, 0.0, 1.0), _deco.randi())
 
 
 # ------------------------------------------------------- NAVE, AISLES, CHAPELS
@@ -712,7 +724,6 @@ func _build_apse() -> void:
 
 func _apse_window(z_back: float) -> void:
 	# the rose window: glows through the fog so you always know where "north" is
-	window_pos = Vector3(0.0, 5.2, z_back + 0.05)
 	var win = MeshInstance3D.new()
 	var qm = QuadMesh.new()
 	qm.size = Vector2(5.6, 5.6)
@@ -728,7 +739,7 @@ func _apse_window(z_back: float) -> void:
 		var rose = ShaderMaterial.new()
 		rose.shader = ROSE_SHADER
 		win.material_override = rose
-	win.position = window_pos
+	win.position = Vector3(0.0, 5.2, z_back + 0.05)
 	add_child(win)
 	var glow = OmniLight3D.new()
 	glow.position = Vector3(0.0, 4.2, z_back + 2.0)
@@ -767,10 +778,15 @@ func _pedestal(za: float) -> void:
 	_moon_shaft(Vector2(0.0, za + 1.2), 2.2, 1.4)
 
 
+func drop_outside() -> void:
+	if _outside != null:
+		_outside.queue_free()
+		_outside = null
+
+
 func _take_altar(wings) -> void:
 	altar_pos = wings.altar_pos
 	altar_top = wings.altar_top
-	altar_yaw = wings.altar_yaw
 	altar_front = wings.altar_front
 	altar_way_in = wings.altar_way_in
 	altar_way_dir = wings.altar_way_dir
@@ -836,11 +852,13 @@ func advance_ritual(placed: int) -> void:
 
 
 # GDD "Vsegda sebya vydayot": candles go out where the demon walks.
-func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> void:
+func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx, viewer := Vector2.INF) -> void:
 	if _wings != null:
 		_wings.update_candles(demon_pos, demon_active, dt, sfx)
 	_time += dt
-	for c in candles:
+	_frame += 1
+	for i in candles.size():
+		var c = candles[i]
 		var d = c["pos2"].distance_to(demon_pos)
 		# the flame shudders as the demon comes near, then it goes out
 		var near = 0.0
@@ -857,4 +875,7 @@ func update_candles(demon_pos: Vector2, demon_active: bool, dt: float, sfx) -> v
 			if c["timer"] <= 0.0 and (not demon_active or d > 7.0):
 				c["lit"] = true
 				c["candle"].relight()
-		c["candle"].tick(dt, near)
+		if c["pos2"].distance_to(viewer) < 24.0 or viewer == Vector2.INF:
+			c["candle"].tick(dt, near)
+		elif (_frame + i) % 4 == 0:
+			c["candle"].tick(dt * 4.0, near)

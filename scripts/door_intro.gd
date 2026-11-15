@@ -406,5 +406,6 @@ func _finish() -> void:
 	player.collision_mask = 1
 	if _creak != null:
 		_creak.queue_free()
+	main.level.drop_outside()
 	main.end_intro()
 	queue_free()

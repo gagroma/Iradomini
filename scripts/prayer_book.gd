@@ -10,6 +10,8 @@ var opened := 0.0
 
 var _flap: Node3D
 
+static var _pages := {}
+
 
 func _ready() -> void:
 	var leather = StandardMaterial3D.new()
@@ -68,6 +70,8 @@ func _page(at: Vector3, tex: Texture2D, parent: Node3D) -> void:
 
 
 func _page_texture(rng: RandomNumberGenerator, left: bool) -> ImageTexture:
+	if _pages.has(left):
+		return _pages[left]
 	var w = 48
 	var h = 70
 	var img = Image.create(w, h, false, Image.FORMAT_RGB8)
@@ -103,7 +107,8 @@ func _page_texture(rng: RandomNumberGenerator, left: bool) -> ImageTexture:
 			x += word + rng.randi_range(1, 2)
 		yl += 4
 		line += 1
-	return ImageTexture.create_from_image(img)
+	_pages[left] = ImageTexture.create_from_image(img)
+	return _pages[left]
 
 
 func _process(_dt: float) -> void:

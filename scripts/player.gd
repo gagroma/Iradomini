@@ -64,7 +64,6 @@ var aim_valid := false      # true when you look at floor within chalk reach
 var aim_point := Vector2.ZERO
 var drawing := false
 var erase_progress := 0.0
-var death_look := Vector3.ZERO
 var _pinned := 0.0
 var auto_move := Vector3.ZERO
 var right_override: Variant = null
@@ -96,7 +95,7 @@ func setup(main_node) -> void:
 	cam = Camera3D.new()
 	cam.fov = T.FOV_NORMAL
 	cam.near = 0.05
-	cam.far = 90.0
+	cam.far = 60.0
 	head.add_child(cam)
 	cam.current = true
 
@@ -156,8 +155,6 @@ func _physics_process(dt: float) -> void:
 	var can_act = alive and not frozen
 
 	# --- looking, with a little inertia so it feels like a head, not a cursor ---
-	if not alive:
-		_look_towards(death_look)
 	var k = 1.0 - exp(-22.0 * dt)
 	yaw = lerpf(yaw, yaw_target, k)
 	pitch = lerpf(pitch, pitch_target, k)
@@ -337,21 +334,6 @@ func _update_chalk(dt: float, can_draw: bool) -> void:
 		main.chalk.erase_cancel()
 
 
-# Turn the head towards a point in the world (death and ending cameras).
-func _look_towards(point: Vector3) -> void:
-	var to = point - cam.global_position
-	if to.length() < 0.01:
-		return
-	var want_yaw = atan2(-to.x, -to.z)
-	var want_pitch = atan2(to.y, Vector2(to.x, to.z).length())
-	yaw_target = yaw + wrapf(want_yaw - yaw, -PI, PI)
-	pitch_target = clampf(want_pitch, -1.4, 1.4)
-
-
-func look_at_point(point: Vector3) -> void:
-	_look_towards(point)
-
-
 func right_hand_at(grip: Vector3) -> Transform3D:
 	var z = (SHOULDER - grip).normalized()
 	var x = Vector3.UP.cross(z).normalized()
@@ -400,7 +382,6 @@ func take_hit(from: Vector3) -> void:
 	_pinned = 0.0
 	if critical:
 		alive = false
-		death_look = from + Vector3(0.0, 2.05, 0.0)
 		main.chalk.release()
 		main.on_player_died()
 		return

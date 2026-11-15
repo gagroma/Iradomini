@@ -46,7 +46,6 @@ var _line := -1
 var _rush_at := 0.0
 var _rush := []
 var _strike_t := -1.0
-var _amen := false
 var _murmur: AudioStreamPlayer
 var _subs: Label
 var _canvas: CanvasLayer
